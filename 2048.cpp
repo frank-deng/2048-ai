@@ -392,15 +392,17 @@ float score_toplevel_move(board_t board, int move) {
     eval_state state;
     state.depth_limit = std::max(3, count_distinct_tiles(board) - 2);
 
-    gettimeofday(&start, NULL);
+    //gettimeofday(&start, NULL);
     res = _score_toplevel_move(state, board, move);
-    gettimeofday(&finish, NULL);
+    //gettimeofday(&finish, NULL);
 
+	/*
     elapsed = (finish.tv_sec - start.tv_sec);
     elapsed += (finish.tv_usec - start.tv_usec) / 1000000.0;
 
     printf("Move %d: result %f: eval'd %ld moves (%d cache hits, %d cache size) in %.2f seconds (maxdepth=%d)\n", move, res,
         state.moves_evaled, state.cachehits, (int)state.trans_table.size(), elapsed, state.maxdepth);
+	*/
 
     return res;
 }
@@ -411,8 +413,8 @@ int find_best_move(board_t board) {
     float best = 0;
     int bestmove = -1;
 
-    print_board(board);
-    printf("Current scores: heur %.0f, actual %.0f\n", score_heur_board(board), score_board(board));
+    //print_board(board);
+    //printf("Current scores: heur %.0f, actual %.0f\n", score_heur_board(board), score_board(board));
 
     for(move=0; move<4; move++) {
         float res = score_toplevel_move(board, move);
@@ -501,7 +503,7 @@ void play_game(get_move_func_t get_move) {
         if(move == 4)
             break; // no legal moves
 
-        printf("\nMove #%d, current score=%.0f\n", ++moveno, score_board(board) - scorepenalty);
+        //printf("\nMove #%d, current score=%.0f\n", ++moveno, score_board(board) - scorepenalty);
 
         move = get_move(board);
         if(move < 0)
@@ -519,8 +521,9 @@ void play_game(get_move_func_t get_move) {
         board = insert_tile_rand(newboard, tile);
     }
 
-    print_board(board);
-    printf("\nGame over. Your score is %.0f. The highest rank you achieved was %d.\n", score_board(board) - scorepenalty, get_max_rank(board));
+    //print_board(board);
+    //printf("\nGame over. Your score is %.0f. The highest rank you achieved was %d.\n", score_board(board) - scorepenalty, get_max_rank(board));
+    printf("%lu %lu %llu", score_board(board) - scorepenalty, get_max_rank(board), board);
 }
 
 int main() {
