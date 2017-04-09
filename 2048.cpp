@@ -504,6 +504,7 @@ void play_game(get_move_func_t get_move) {
             break; // no legal moves
 
         //printf("\nMove #%d, current score=%.0f\n", ++moveno, score_board(board) - scorepenalty);
+		//print_board(board);
 
         move = get_move(board);
         if(move < 0)
@@ -523,7 +524,7 @@ void play_game(get_move_func_t get_move) {
 
     //print_board(board);
     //printf("\nGame over. Your score is %.0f. The highest rank you achieved was %d.\n", score_board(board) - scorepenalty, get_max_rank(board));
-    printf("%lu %lu %llu", score_board(board) - scorepenalty, get_max_rank(board), board);
+    printf("%lu %lu %016llx", score_board(board) - scorepenalty, 1 << get_max_rank(board), board);
 }
 
 int main() {
