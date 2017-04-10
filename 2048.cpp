@@ -71,12 +71,14 @@ static int count_empty(board_t x)
  *
  * Thus, the value is 0 if there is no move, and otherwise equals a value that can easily be
  * xor'ed into the current board state to update the board. */
-static row_t row_left_table [65536];
-static row_t row_right_table[65536];
-static board_t col_up_table[65536];
-static board_t col_down_table[65536];
-static float heur_score_table[65536];
-static float score_table[65536];
+typedef struct {
+	row_t row_left_table [65536];
+	row_t row_right_table[65536];
+	board_t col_up_table[65536];
+	board_t col_down_table[65536];
+	float heur_score_table[65536];
+	float score_table[65536];
+} table_data_t;
 
 // Heuristic scoring settings
 static const float SCORE_LOST_PENALTY = 200000.0f;
@@ -87,7 +89,7 @@ static const float SCORE_SUM_WEIGHT = 11.0f;
 static const float SCORE_MERGES_WEIGHT = 700.0f;
 static const float SCORE_EMPTY_WEIGHT = 270.0f;
 
-void init_tables() {
+void init_tables(table_data_t *table) {
     for (unsigned row = 0; row < 65536; ++row) {
         unsigned line[4] = {
                 (row >>  0) & 0xf,
@@ -105,8 +107,7 @@ void init_tables() {
                 score += (rank - 1) * (1 << rank);
             }
         }
-        score_table[row] = score;
-
+        (table->score_table)[row] = score;
 
         // Heuristic score
         float sum = 0;
@@ -144,7 +145,7 @@ void init_tables() {
             }
         }
 
-        heur_score_table[row] = SCORE_LOST_PENALTY +
+        (table->heur_score_table)[row] = SCORE_LOST_PENALTY +
             SCORE_EMPTY_WEIGHT * empty +
             SCORE_MERGES_WEIGHT * merges -
             SCORE_MONOTONICITY_WEIGHT * std::min(monotonicity_left, monotonicity_right) -
@@ -178,67 +179,47 @@ void init_tables() {
         row_t rev_result = reverse_row(result);
         unsigned rev_row = reverse_row(row);
 
-        row_left_table [    row] =                row  ^                result;
-        row_right_table[rev_row] =            rev_row  ^            rev_result;
-        col_up_table   [    row] = unpack_col(    row) ^ unpack_col(    result);
-        col_down_table [rev_row] = unpack_col(rev_row) ^ unpack_col(rev_result);
+        (table->row_left_table)[row] = row ^ result;
+        (table->row_right_table)[rev_row] = rev_row ^ rev_result;
+        (table->col_up_table)[row] = unpack_col(row) ^ unpack_col(result);
+        (table->col_down_table)[rev_row] = unpack_col(rev_row) ^ unpack_col(rev_result);
     }
-}
-
-static inline board_t execute_move_0(board_t board) {
-    board_t ret = board;
-    board_t t = transpose(board);
-    ret ^= col_up_table[(t >>  0) & ROW_MASK] <<  0;
-    ret ^= col_up_table[(t >> 16) & ROW_MASK] <<  4;
-    ret ^= col_up_table[(t >> 32) & ROW_MASK] <<  8;
-    ret ^= col_up_table[(t >> 48) & ROW_MASK] << 12;
-    return ret;
-}
-
-static inline board_t execute_move_1(board_t board) {
-    board_t ret = board;
-    board_t t = transpose(board);
-    ret ^= col_down_table[(t >>  0) & ROW_MASK] <<  0;
-    ret ^= col_down_table[(t >> 16) & ROW_MASK] <<  4;
-    ret ^= col_down_table[(t >> 32) & ROW_MASK] <<  8;
-    ret ^= col_down_table[(t >> 48) & ROW_MASK] << 12;
-    return ret;
-}
-
-static inline board_t execute_move_2(board_t board) {
-    board_t ret = board;
-    ret ^= board_t(row_left_table[(board >>  0) & ROW_MASK]) <<  0;
-    ret ^= board_t(row_left_table[(board >> 16) & ROW_MASK]) << 16;
-    ret ^= board_t(row_left_table[(board >> 32) & ROW_MASK]) << 32;
-    ret ^= board_t(row_left_table[(board >> 48) & ROW_MASK]) << 48;
-    return ret;
-}
-
-static inline board_t execute_move_3(board_t board) {
-    board_t ret = board;
-    ret ^= board_t(row_right_table[(board >>  0) & ROW_MASK]) <<  0;
-    ret ^= board_t(row_right_table[(board >> 16) & ROW_MASK]) << 16;
-    ret ^= board_t(row_right_table[(board >> 32) & ROW_MASK]) << 32;
-    ret ^= board_t(row_right_table[(board >> 48) & ROW_MASK]) << 48;
-    return ret;
 }
 
 /* Execute a move. */
-static inline board_t execute_move(int move, board_t board) {
+static inline board_t execute_move(table_data_t *table, int move, board_t board) {
+    board_t ret = board, t;
     switch(move) {
-    case 0: // up
-        return execute_move_0(board);
-    case 1: // down
-        return execute_move_1(board);
-    case 2: // left
-        return execute_move_2(board);
-    case 3: // right
-        return execute_move_3(board);
-    default:
-        return ~0ULL;
+		case 0: // up
+			t = transpose(board);
+			ret ^= (table->col_up_table)[(t >>  0) & ROW_MASK] <<  0;
+			ret ^= (table->col_up_table)[(t >> 16) & ROW_MASK] <<  4;
+			ret ^= (table->col_up_table)[(t >> 32) & ROW_MASK] <<  8;
+			ret ^= (table->col_up_table)[(t >> 48) & ROW_MASK] << 12;
+			return ret;
+		case 1: // down
+			t = transpose(board);
+			ret ^= (table->col_down_table)[(t >>  0) & ROW_MASK] <<  0;
+			ret ^= (table->col_down_table)[(t >> 16) & ROW_MASK] <<  4;
+			ret ^= (table->col_down_table)[(t >> 32) & ROW_MASK] <<  8;
+			ret ^= (table->col_down_table)[(t >> 48) & ROW_MASK] << 12;
+			return ret;
+		case 2: // left
+			ret ^= board_t((table->row_left_table)[(board >>  0) & ROW_MASK]) <<  0;
+			ret ^= board_t((table->row_left_table)[(board >> 16) & ROW_MASK]) << 16;
+			ret ^= board_t((table->row_left_table)[(board >> 32) & ROW_MASK]) << 32;
+			ret ^= board_t((table->row_left_table)[(board >> 48) & ROW_MASK]) << 48;
+			return ret;
+		case 3: // right
+			ret ^= board_t((table->row_right_table)[(board >>  0) & ROW_MASK]) <<  0;
+			ret ^= board_t((table->row_right_table)[(board >> 16) & ROW_MASK]) << 16;
+			ret ^= board_t((table->row_right_table)[(board >> 32) & ROW_MASK]) << 32;
+			ret ^= board_t((table->row_right_table)[(board >> 48) & ROW_MASK]) << 48;
+			return ret;
+		default:
+			return ~0ULL;
     }
 }
-
 static inline int get_max_rank(board_t board) {
     int maxrank = 0;
     while (board) {
@@ -247,7 +228,6 @@ static inline int get_max_rank(board_t board) {
     }
     return maxrank;
 }
-
 static inline int count_distinct_tiles(board_t board) {
     uint16_t bitset = 0;
     while (board) {
@@ -267,7 +247,6 @@ static inline int count_distinct_tiles(board_t board) {
 }
 
 /* Optimizing the game */
-
 struct eval_state {
     trans_table_t trans_table; // transposition table, to cache previously-seen moves
     int maxdepth;
@@ -275,20 +254,14 @@ struct eval_state {
     int cachehits;
     unsigned long moves_evaled;
     int depth_limit;
-
     eval_state() : maxdepth(0), curdepth(0), cachehits(0), moves_evaled(0), depth_limit(0) {
     }
 };
 
-// score a single board heuristically
-static float score_heur_board(board_t board);
-// score a single board actually (adding in the score from spawned 4 tiles)
-static float score_board(board_t board);
 // score over all possible moves
-static float score_move_node(eval_state &state, board_t board, float cprob);
+static float score_move_node(table_data_t *table, eval_state &state, board_t board, float cprob);
 // score over all possible tile choices and placements
-static float score_tilechoose_node(eval_state &state, board_t board, float cprob);
-
+static float score_tilechoose_node(table_data_t *table, eval_state &state, board_t board, float cprob);
 
 static float score_helper(board_t board, const float* table) {
     return table[(board >>  0) & ROW_MASK] +
@@ -297,13 +270,15 @@ static float score_helper(board_t board, const float* table) {
            table[(board >> 48) & ROW_MASK];
 }
 
-static float score_heur_board(board_t board) {
-    return score_helper(          board , heur_score_table) +
-           score_helper(transpose(board), heur_score_table);
+// score a single board heuristically
+static float score_heur_board(table_data_t *table, board_t board) {
+    return score_helper(          board , table->heur_score_table) +
+           score_helper(transpose(board), table->heur_score_table);
 }
 
-static float score_board(board_t board) {
-    return score_helper(board, score_table);
+// score a single board actually (adding in the score from spawned 4 tiles)
+static float score_board(table_data_t *table, board_t board) {
+    return score_helper(board, table->score_table);
 }
 
 // Statistics and controls
@@ -312,10 +287,10 @@ static float score_board(board_t board) {
 static const float CPROB_THRESH_BASE = 0.0001f;
 static const int CACHE_DEPTH_LIMIT  = 15;
 
-static float score_tilechoose_node(eval_state &state, board_t board, float cprob) {
+static float score_tilechoose_node(table_data_t *table, eval_state &state, board_t board, float cprob) {
     if (cprob < CPROB_THRESH_BASE || state.curdepth >= state.depth_limit) {
         state.maxdepth = std::max(state.curdepth, state.maxdepth);
-        return score_heur_board(board);
+        return score_heur_board(table, board);
     }
     if (state.curdepth < CACHE_DEPTH_LIMIT) {
         const trans_table_t::iterator &i = state.trans_table.find(board);
@@ -343,8 +318,8 @@ static float score_tilechoose_node(eval_state &state, board_t board, float cprob
     board_t tile_2 = 1;
     while (tile_2) {
         if ((tmp & 0xf) == 0) {
-            res += score_move_node(state, board |  tile_2      , cprob * 0.9f) * 0.9f;
-            res += score_move_node(state, board | (tile_2 << 1), cprob * 0.1f) * 0.1f;
+            res += score_move_node(table, state, board |  tile_2      , cprob * 0.9f) * 0.9f;
+            res += score_move_node(table, state, board | (tile_2 << 1), cprob * 0.1f) * 0.1f;
         }
         tmp >>= 4;
         tile_2 <<= 4;
@@ -358,34 +333,30 @@ static float score_tilechoose_node(eval_state &state, board_t board, float cprob
 
     return res;
 }
-
-static float score_move_node(eval_state &state, board_t board, float cprob) {
+static float score_move_node(table_data_t *table, eval_state &state, board_t board, float cprob) {
     float best = 0.0f;
     state.curdepth++;
     for (int move = 0; move < 4; ++move) {
-        board_t newboard = execute_move(move, board);
+        board_t newboard = execute_move(table, move, board);
         state.moves_evaled++;
 
         if (board != newboard) {
-            best = std::max(best, score_tilechoose_node(state, newboard, cprob));
+            best = std::max(best, score_tilechoose_node(table, state, newboard, cprob));
         }
     }
     state.curdepth--;
 
     return best;
 }
-
-static float _score_toplevel_move(eval_state &state, board_t board, int move) {
+static float _score_toplevel_move(table_data_t *table, eval_state &state, board_t board, int move) {
     //int maxrank = get_max_rank(board);
-    board_t newboard = execute_move(move, board);
-
-    if(board == newboard)
+    board_t newboard = execute_move(table, move, board);
+    if (board == newboard) {
         return 0;
-
-    return score_tilechoose_node(state, newboard, 1.0f) + 1e-6;
+	}
+    return score_tilechoose_node(table, state, newboard, 1.0f) + 1e-6;
 }
-
-float score_toplevel_move(board_t board, int move) {
+float score_toplevel_move(table_data_t *table, board_t board, int move) {
     float res;
     struct timeval start, finish;
     double elapsed;
@@ -393,7 +364,7 @@ float score_toplevel_move(board_t board, int move) {
     state.depth_limit = std::max(3, count_distinct_tiles(board) - 2);
 
     //gettimeofday(&start, NULL);
-    res = _score_toplevel_move(state, board, move);
+    res = _score_toplevel_move(table, state, board, move);
     //gettimeofday(&finish, NULL);
 
 	/*
@@ -403,12 +374,11 @@ float score_toplevel_move(board_t board, int move) {
     printf("Move %d: result %f: eval'd %ld moves (%d cache hits, %d cache size) in %.2f seconds (maxdepth=%d)\n", move, res,
         state.moves_evaled, state.cachehits, (int)state.trans_table.size(), elapsed, state.maxdepth);
 	*/
-
     return res;
 }
 
 /* Find the best move for a given board. */
-int find_best_move(board_t board) {
+int find_best_move(table_data_t *table, board_t board) {
     int move;
     float best = 0;
     int bestmove = -1;
@@ -417,48 +387,13 @@ int find_best_move(board_t board) {
     //printf("Current scores: heur %.0f, actual %.0f\n", score_heur_board(board), score_board(board));
 
     for(move=0; move<4; move++) {
-        float res = score_toplevel_move(board, move);
-
+        float res = score_toplevel_move(table, board, move);
         if(res > best) {
             best = res;
             bestmove = move;
         }
     }
-
     return bestmove;
-}
-
-int ask_for_move(board_t board) {
-    int move;
-    char validstr[5];
-    char *validpos = validstr;
-
-    print_board(board);
-
-    for(move=0; move<4; move++) {
-        if(execute_move(move, board) != board)
-            *validpos++ = "UDLR"[move];
-    }
-    *validpos = 0;
-    if(validpos == validstr)
-        return -1;
-
-    while(1) {
-        char movestr[64];
-        const char *allmoves = "UDLR";
-
-        printf("Move [%s]? ", validstr);
-
-        if(!fgets(movestr, sizeof(movestr)-1, stdin))
-            return -1;
-
-        if(!strchr(validstr, toupper(movestr[0]))) {
-            printf("Invalid move.\n");
-            continue;
-        }
-
-        return strchr(allmoves, toupper(movestr[0])) - allmoves;
-    }
 }
 
 /* Playing the game */
@@ -487,7 +422,7 @@ static board_t initial_board() {
     return insert_tile_rand(board, draw_tile());
 }
 
-void play_game(get_move_func_t get_move) {
+void play_game(table_data_t *table) {
     board_t board = initial_board();
     int moveno = 0;
     int scorepenalty = 0; // "penalty" for obtaining free 4 tiles
@@ -497,20 +432,22 @@ void play_game(get_move_func_t get_move) {
         board_t newboard;
 
         for(move = 0; move < 4; move++) {
-            if(execute_move(move, board) != board)
+            if(execute_move(table, move, board) != board)
                 break;
         }
-        if(move == 4)
+        if(move == 4) {
             break; // no legal moves
+		}
 
         //printf("\nMove #%d, current score=%.0f\n", ++moveno, score_board(board) - scorepenalty);
-		//print_board(board);
+		print_board(board);
 
-        move = get_move(board);
-        if(move < 0)
+        move = find_best_move(table, board);
+        if(move < 0) {
             break;
+		}
 
-        newboard = execute_move(move, board);
+        newboard = execute_move(table, move, board);
         if(newboard == board) {
             printf("Illegal move!\n");
             moveno--;
@@ -518,16 +455,19 @@ void play_game(get_move_func_t get_move) {
         }
 
         board_t tile = draw_tile();
-        if (tile == 2) scorepenalty += 4;
+        if (tile == 2) {
+			scorepenalty += 4;
+		}
         board = insert_tile_rand(newboard, tile);
     }
 
     //print_board(board);
     //printf("\nGame over. Your score is %.0f. The highest rank you achieved was %d.\n", score_board(board) - scorepenalty, get_max_rank(board));
-    printf("%lu %lu %016llx", score_board(board) - scorepenalty, 1 << get_max_rank(board), board);
+    printf("%lu %lu %016llx", score_board(table, board) - scorepenalty, 1 << get_max_rank(board), board);
 }
 
 int main() {
-    init_tables();
-    play_game(find_best_move);
+	table_data_t table;
+    init_tables(&table);
+    play_game(&table);
 }
