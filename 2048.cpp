@@ -543,7 +543,7 @@ void* thread_main(void *data){
 		if (play_game(&(((thread_data_t*)data)->table), &game_over)) {
 			pthread_mutex_lock(&mutex);
 			if (fp = fopen(filename, "a")) {
-				fprintf(fp, "%lu,%lu,%d,%016llx",
+				fprintf(fp, "%lu,%lu,%d,%016llx\n",
 					game_over.moveno,
 					game_over.score,
 					game_over.max_rank,
