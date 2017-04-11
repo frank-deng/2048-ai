@@ -20,16 +20,16 @@ $(shell $(MKDIR_P) bin)
 
 all: 2048$(EXEEXT)
 
-bin/%$(EXEEXT): bin/%.$(OBJEXT)
+%$(EXEEXT): %.$(OBJEXT)
 	$(CXXLD) $(CXXFLAGS) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-bin/%.so: bin/%.$(OBJEXT)
+%.so: %.$(OBJEXT)
 	$(CXXLD) $(CXXFLAGS) -shared $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-bin/%.$(OBJEXT) : %.cpp
+%.$(OBJEXT) : %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 clean:
-	$(RM) -rf bin/*
+	$(RM) -rf 2048$(EXEEXT) 2048$(OBJEXT)
 
 .PHONY: all clean
