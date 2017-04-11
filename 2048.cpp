@@ -15,29 +15,29 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <time.h>
 #include <algorithm>
-#include "platdefs.h"
-#include "config.h"
-#if defined(HAVE_UNORDERED_MAP)
-    #include <unordered_map>
-    typedef std::unordered_map<board_t, trans_table_entry_t> trans_table_t;
-#elif defined(HAVE_TR1_UNORDERED_MAP)
-    #include <tr1/unordered_map>
-    typedef std::tr1::unordered_map<board_t, trans_table_entry_t> trans_table_t;
-#else
-    #include <map>
-    typedef std::map<board_t, trans_table_entry_t> trans_table_t;
-#endif
+#include <unordered_map>
 
-/* MSVC compatibility: undefine max and min macros */
-#if defined(max)
-#undef max
-#endif
-
-#if defined(min)
-#undef min
-#endif
+static inline unsigned unif_random(unsigned n) {
+    static int seeded = 0;
+    if(!seeded) {
+        int fd = open("/dev/urandom", O_RDONLY);
+        unsigned short seed[3];
+        if(fd < 0 || read(fd, seed, sizeof(seed)) < (int)sizeof(seed)) {
+            srand48(time(NULL));
+        } else {
+            seed48(seed);
+        }
+        if(fd >= 0) {
+            close(fd);
+		}
+        seeded = 1;
+    }
+    return (int)(drand48() * n);
+}
 
 typedef uint64_t board_t;
 typedef uint16_t row_t;
@@ -48,6 +48,7 @@ struct trans_table_entry_t{
     float heuristic;
 };
 
+typedef std::unordered_map<board_t, trans_table_entry_t> trans_table_t;
 static const board_t ROW_MASK = 0xFFFFULL;
 static const board_t COL_MASK = 0x000F000F000F000FULL;
 
@@ -403,8 +404,8 @@ static float _score_toplevel_move(table_data_t *table, eval_state &state, board_
 }
 float score_toplevel_move(table_data_t *table, board_t board, int move) {
     float res;
-    struct timeval start, finish;
-    double elapsed;
+    //struct timeval start, finish;
+    //double elapsed;
     eval_state state;
     state.depth_limit = std::max(3, count_distinct_tiles(board) - 2);
 
@@ -473,26 +474,26 @@ static board_t initial_board() {
 #include <sys/sysinfo.h>
 
 typedef struct {
-	uint64_t moveno,
-	uint64_t score,
-	uint16_t max_rank,
-	board_t board,
+	uint64_t moveno;
+	uint64_t score;
+	uint16_t max_rank;
+	board_t board;
 } game_over_t;
 typedef struct {
 	pthread_t tid;
-	pthread_mutex_t mutex;
 	table_data_t table;
 } thread_data_t;
 thread_data_t *thread_data;
-int proc_cnt;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+int proc_cnt, running = 1;
 char *filename;
 
-void play_game(table_data_t *table, game_over_t *game_over) {
+int play_game(table_data_t *table, game_over_t *game_over) {
     board_t board = initial_board();
     int moveno = 0;
     int scorepenalty = 0; // "penalty" for obtaining free 4 tiles
 
-    while(1) {
+    while(running) {
         int move;
         board_t newboard;
 
@@ -524,40 +525,41 @@ void play_game(table_data_t *table, game_over_t *game_over) {
 		}
         board = insert_tile_rand(newboard, tile);
     }
-    game_over->moveno = moveno;
-    game_over->score = score_board(table, board) - scorepenalty;
-    game_over->max_rank = (1 << get_max_rank(board));
-    game_over->board = board;
+	if (!running) {
+		return 0;
+	} else {
+		game_over->moveno = moveno;
+		game_over->score = score_board(table, board) - scorepenalty;
+		game_over->max_rank = (1 << get_max_rank(board));
+		game_over->board = board;
+		return 1;
+	}
 }
 void* thread_main(void *data){
 	FILE *fp;
 	game_over_t game_over;
-	init_tables(&(data->table));
-	while (1) {
-		play_game(&(data->table), &game_over);
-		pthread_mutex_lock(&(thread_data[i].mutex));
-		if (fp = fopen(filename, "a")) {
-			fprintf(fp, "%lu,%lu,%d,%016llx",
-				game_over.moveno,
-				game_over.score,
-				game_over.max_rank,
-				game_over.board
-			);
-			fclose(fp);
+	init_tables(&(((thread_data_t*)data)->table));
+	while (running) {
+		if (play_game(&(((thread_data_t*)data)->table), &game_over)) {
+			pthread_mutex_lock(&mutex);
+			if (fp = fopen(filename, "a")) {
+				fprintf(fp, "%lu,%lu,%d,%016llx",
+					game_over.moveno,
+					game_over.score,
+					game_over.max_rank,
+					game_over.board
+				);
+				fclose(fp);
+			}
+			pthread_mutex_unlock(&mutex);
 		}
-		pthread_mutex_unlock(&(thread_data[i].mutex));
 	}
 	return ((void*)0);
 }
 void action_quit(int sig){
-	int i;
-	for (i = 0; i < proc_cnt; i++) {
-		pthread_mutex_lock(&(thread_data[i].mutex));
-		pthread_kill(thread_data[i].tid, SIGQUIT);
-		pthread_mutex_destroy(&(thread_data[i].mutex));
-	}
+	running = 0;
 }
-int main() {
+int main(int argc, char *argv[]) {
 	int i;
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s FILENAME\n", argv[0]);
@@ -568,17 +570,18 @@ int main() {
 	proc_cnt = get_nprocs();
 	signal(SIGINT, action_quit);
 	signal(SIGQUIT, action_quit);
-    thread_data = malloc(sizeof(thread_data_t) * proc_cnt);
+    thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
 	for (i = 0; i < proc_cnt; i++) {
-		thread_data[i].mutex = PTHREAD_MUTEX_INITIALIZER;
 		pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
 	}
+
 	for (i = 0; i < proc_cnt; i++) {
 		pthread_join(thread_data[i].tid, NULL);
 	}
+
 	free(thread_data);
-	signal(SIGUSR1, SIG_DFL);
 	signal(SIGINT, SIG_DFL);
 	signal(SIGQUIT, SIG_DFL);
 	return 0;
 }
+
