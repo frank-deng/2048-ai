@@ -485,6 +485,7 @@ typedef struct {
 } thread_data_t;
 thread_data_t *thread_data;
 int proc_cnt;
+char *filename;
 
 void play_game(table_data_t *table, game_over_t *game_over) {
     board_t board = initial_board();
@@ -529,23 +530,27 @@ void play_game(table_data_t *table, game_over_t *game_over) {
     game_over->board = board;
 }
 void* thread_main(void *data){
+	FILE *fp;
 	game_over_t game_over;
-	char sql[1000] = "";
 	init_tables(&(data->table));
 	while (1) {
 		play_game(&(data->table), &game_over);
 		pthread_mutex_lock(&(thread_data[i].mutex));
-		sprintf(sql, "INSERT INTO misc.game_history_2048 (MOVES,SCORE,MAXRANK,BOARD) VALUES (%lu,%lu,%lu,'%s')",
-			game_over.moveno,
-			game_over.score,
-			game_over.max_rank,
-			game_over.board
-		);
+		if (fp = fopen(filename, "a")) {
+			fprintf(fp, "%lu,%lu,%d,%016llx",
+				game_over.moveno,
+				game_over.score,
+				game_over.max_rank,
+				game_over.board
+			);
+			fclose(fp);
+		}
 		pthread_mutex_unlock(&(thread_data[i].mutex));
 	}
 	return ((void*)0);
 }
 void action_quit(int sig){
+	int i;
 	for (i = 0; i < proc_cnt; i++) {
 		pthread_mutex_lock(&(thread_data[i].mutex));
 		pthread_kill(thread_data[i].tid, SIGQUIT);
@@ -554,6 +559,12 @@ void action_quit(int sig){
 }
 int main() {
 	int i;
+	if (argc < 2) {
+		fprintf(stderr, "Usage: %s FILENAME\n", argv[0]);
+		return 1;
+	}
+	filename = argv[1];
+
 	proc_cnt = get_nprocs();
 	signal(SIGINT, action_quit);
 	signal(SIGQUIT, action_quit);
