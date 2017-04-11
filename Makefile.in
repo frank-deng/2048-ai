@@ -18,7 +18,7 @@ OBJEXT = @OBJEXT@
 
 $(shell $(MKDIR_P) bin)
 
-all: bin/2048$(EXEEXT) bin/2048.so
+all: 2048$(EXEEXT)
 
 bin/%$(EXEEXT): bin/%.$(OBJEXT)
 	$(CXXLD) $(CXXFLAGS) $(LDFLAGS) $^ $(LDLIBS) -o $@
