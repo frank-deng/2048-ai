@@ -467,7 +467,26 @@ static board_t initial_board() {
     return insert_tile_rand(board, draw_tile());
 }
 
-void play_game(table_data_t *table) {
+/*Play 2048 game in multiple threads*/
+#include <signal.h>
+#include <pthread.h>
+#include <sys/sysinfo.h>
+
+typedef struct {
+	uint64_t moveno,
+	uint64_t score,
+	uint16_t max_rank,
+	board_t board,
+} game_over_t;
+typedef struct {
+	pthread_t tid;
+	pthread_mutex_t mutex;
+	table_data_t table;
+} thread_data_t;
+thread_data_t *thread_data;
+int proc_cnt;
+
+void play_game(table_data_t *table, game_over_t *game_over) {
     board_t board = initial_board();
     int moveno = 0;
     int scorepenalty = 0; // "penalty" for obtaining free 4 tiles
@@ -483,9 +502,8 @@ void play_game(table_data_t *table) {
         if(move == 4) {
             break; // no legal moves
 		}
-
-        //printf("\nMove #%d, current score=%.0f\n", ++moveno, score_board(board) - scorepenalty);
-		print_board(board);
+		//print_board(board);
+		moveno++;
 
         move = find_best_move(table, board);
         if(move < 0) {
@@ -505,14 +523,51 @@ void play_game(table_data_t *table) {
 		}
         board = insert_tile_rand(newboard, tile);
     }
-
-    //print_board(board);
-    //printf("\nGame over. Your score is %.0f. The highest rank you achieved was %d.\n", score_board(board) - scorepenalty, get_max_rank(board));
-    printf("%lu %lu %016llx", score_board(table, board) - scorepenalty, 1 << get_max_rank(board), board);
+    game_over->moveno = moveno;
+    game_over->score = score_board(table, board) - scorepenalty;
+    game_over->max_rank = (1 << get_max_rank(board));
+    game_over->board = board;
 }
-
+void* thread_main(void *data){
+	game_over_t game_over;
+	char sql[1000] = "";
+	init_tables(&(data->table));
+	while (1) {
+		play_game(&(data->table), &game_over);
+		pthread_mutex_lock(&(thread_data[i].mutex));
+		sprintf(sql, "INSERT INTO misc.game_history_2048 (MOVES,SCORE,MAXRANK,BOARD) VALUES (%lu,%lu,%lu,'%s')",
+			game_over.moveno,
+			game_over.score,
+			game_over.max_rank,
+			game_over.board
+		);
+		pthread_mutex_unlock(&(thread_data[i].mutex));
+	}
+	return ((void*)0);
+}
+void action_quit(int sig){
+	for (i = 0; i < proc_cnt; i++) {
+		pthread_mutex_lock(&(thread_data[i].mutex));
+		pthread_kill(thread_data[i].tid, SIGQUIT);
+		pthread_mutex_destroy(&(thread_data[i].mutex));
+	}
+}
 int main() {
-	table_data_t table;
-    init_tables(&table);
-    play_game(&table);
+	int i;
+	proc_cnt = get_nprocs();
+	signal(SIGINT, action_quit);
+	signal(SIGQUIT, action_quit);
+    thread_data = malloc(sizeof(thread_data_t) * proc_cnt);
+	for (i = 0; i < proc_cnt; i++) {
+		thread_data[i].mutex = PTHREAD_MUTEX_INITIALIZER;
+		pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
+	}
+	for (i = 0; i < proc_cnt; i++) {
+		pthread_join(thread_data[i].tid, NULL);
+	}
+	free(thread_data);
+	signal(SIGUSR1, SIG_DFL);
+	signal(SIGINT, SIG_DFL);
+	signal(SIGQUIT, SIG_DFL);
+	return 0;
 }

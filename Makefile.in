@@ -9,7 +9,7 @@ CXX = @CXX@
 CXXLD = $(CXX)
 CXXCPP = @CXXCPP@
 CXXFLAGS = @CXXFLAGS@ -O3 -Wall -Wextra -fPIC
-LDFLAGS = @LDFLAGS@
+LDFLAGS = @LDFLAGS@ -pthread
 LIBS = @LIBS@
 MKDIR_P = @MKDIR_P@
 
@@ -22,9 +22,6 @@ all: 2048$(EXEEXT)
 
 %$(EXEEXT): %.$(OBJEXT)
 	$(CXXLD) $(CXXFLAGS) $(LDFLAGS) $^ $(LDLIBS) -o $@
-
-%.so: %.$(OBJEXT)
-	$(CXXLD) $(CXXFLAGS) -shared $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 %.$(OBJEXT) : %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
