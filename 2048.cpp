@@ -559,12 +559,60 @@ void* thread_main(void *data){
 void action_quit(int sig){
 	running = 0;
 }
+void get_stat(char *filename, uint64_t *stat) {
+	FILE *fp;
+	uint64_t dummy, maxval = 0, idx;
+	char sdummy[128];
+	if (fp = fopen(filename, "r")) {
+		while (!feof(fp)) {
+			fscanf(fp, "%u,%u,%u,%s", &dummy, &dummy, &maxval, sdummy);
+			idx = 0;
+			while (!(maxval & 1)) {
+				maxval >>= 1; idx++;
+			}
+			stat[idx]++;
+		}
+	}
+}
 int main(int argc, char *argv[]) {
-	int i;
+	int i, cnt;
+	uint64_t stat[16] = {
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
+	};
 	if (argc < 2) {
-		fprintf(stderr, "Usage: %s FILENAME\n", argv[0]);
+		fprintf(stderr, "Usage: %s [stat] FILENAME\n", argv[0]);
 		return 1;
 	}
+	if (!strcmp(argv[1], "stat")) {
+		filename = argv[2];
+		get_stat(filename, stat);
+		for (i = 1; i < 16; i++) {
+			if (stat[i]) {
+				printf("%d,%d\n", 1<<i, stat[i]);
+			}
+		}
+		return 0;
+	} else if (!strcmp(argv[1], "statb")) {
+		filename = argv[2];
+		get_stat(filename, stat);
+		cnt = 0;
+		for (i = 1; i < 16; i++) {
+			if (stat[i]) {
+				cnt++;
+			}
+		}
+		printf("100 DATA %d,5\r\n", cnt);
+		cnt = 1;
+		for (i = 1; i < 16; i++) {
+			if (stat[i]) {
+				printf("%d DATA \"%5d\",%d\r\n", 100+cnt, 1<<i, stat[i]);
+				cnt++;
+			}
+		}
+		return 0;
+	}
+
 	filename = argv[1];
 
 	proc_cnt = get_nprocs();
