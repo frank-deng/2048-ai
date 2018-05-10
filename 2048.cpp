@@ -618,6 +618,7 @@ int main(int argc, char *argv[]) {
 	proc_cnt = get_nprocs();
 	signal(SIGINT, action_quit);
 	signal(SIGQUIT, action_quit);
+	signal(SIGUSR1, SIG_IGN);
     thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
 	for (i = 0; i < proc_cnt; i++) {
 		pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
@@ -630,6 +631,7 @@ int main(int argc, char *argv[]) {
 	free(thread_data);
 	signal(SIGINT, SIG_DFL);
 	signal(SIGQUIT, SIG_DFL);
+	signal(SIGUSR1, SIG_DFL);
 	return 0;
 }
 
