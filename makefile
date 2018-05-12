@@ -1,10 +1,13 @@
-2048 : 2048.o
-	g++ -O3 -pthread -std=gnu++11 -o $@ $^
+2048 : 2048.o nprocs.o
+	g++ -O3 -pthread -o $@ $^
 
 2048.o : 2048.cpp
-	g++ -O3 -pthread -std=gnu++11 -c -o $@ $<
+	g++ -O3 -pthread -c -o $@ $<
+
+nprocs.o: nprocs.c
+	gcc -O3 -c -o $@ $<
 
 .PHONY: clean
 clean:
-	rm 2048 2048.o
+	-rm 2048 *.o
 

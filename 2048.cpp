@@ -20,6 +20,11 @@
 #include <time.h>
 #include <algorithm>
 #include <unordered_map>
+#include <signal.h>
+#include <pthread.h>
+extern "C" {
+	int nprocs();
+}
 
 static inline unsigned unif_random(unsigned n) {
     static int seeded = 0;
@@ -469,9 +474,6 @@ static board_t initial_board() {
 }
 
 /*Play 2048 game in multiple threads*/
-#include <signal.h>
-#include <pthread.h>
-#include <sys/sysinfo.h>
 
 typedef struct {
 	uint64_t moveno;
@@ -615,7 +617,7 @@ int main(int argc, char *argv[]) {
 
 	filename = argv[1];
 
-	proc_cnt = get_nprocs();
+	proc_cnt = nprocs();
 	signal(SIGINT, action_quit);
 	signal(SIGQUIT, action_quit);
 	signal(SIGUSR1, SIG_IGN);
