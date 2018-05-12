@@ -5,7 +5,7 @@
 	g++ -O3 -pthread -std=c++11 -c -o $@ $<
 
 nprocs.o: nprocs.c
-	gcc -O3 -pthread -std=c++11 -c -o $@ $<
+	gcc -O3 -pthread -c -o $@ $<
 
 .PHONY: clean
 clean:
