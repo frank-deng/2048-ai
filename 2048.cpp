@@ -569,6 +569,9 @@ void get_stat(char *filename, uint64_t *stat) {
 		while (!feof(fp)) {
 			fscanf(fp, "%u,%u,%u,%s", &dummy, &dummy, &maxval, sdummy);
 			idx = 0;
+			if (0 == maxval) {
+				continue;
+			}
 			while (!(maxval & 1)) {
 				maxval >>= 1; idx++;
 			}
