@@ -477,6 +477,7 @@ static board_t initial_board() {
 
 typedef struct {
 	uint64_t moveno;
+	uint64_t score;
 	uint64_t scoreoffset;
 	board_t board;
 } game_state_t;
@@ -528,6 +529,7 @@ int play_game(table_data_t *table, game_state_t *game_state) {
 		}
         board = insert_tile_rand(newboard, tile);
     }
+	game_state->score = (uint64_t)score_board(table, board);
 	game_state->board = board;
 	return playing;
 }
@@ -545,7 +547,7 @@ void* thread_main(void *data){
 			if (fp = fopen(filename, "a")) {
 				fprintf(fp, "%llu,%llu,%u,%016llx\n",
 					game_state->moveno,
-					(unsigned long long)(score_board(table_data, game_state->board)) - game_state->scoreoffset,
+					game_state->score - game_state->scoreoffset,
 					1 << get_max_rank(game_state->board),
 					game_state->board
 				);
@@ -566,6 +568,7 @@ void action_quit(int sig){
 }
 int main(int argc, char *argv[]) {
 	int i, cnt;
+	uint64_t dummy;
 	uint64_t stat[16] = {
 		0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
@@ -591,8 +594,9 @@ int main(int argc, char *argv[]) {
 	FILE *fstat = fopen(filename_stat, "r");
 	if (NULL != fstat){
 		for (i = 0; i < proc_cnt; i++) {
-			fscanf(fstat, "%llu,%llu,%016llx",
+			fscanf(fstat, "%llu,%llu,%llu,%016llx",
 				&(thread_data[i].stat.moveno),
+				&dummy,
 				&(thread_data[i].stat.scoreoffset),
 				&(thread_data[i].stat.board)
 			);
@@ -612,8 +616,9 @@ int main(int argc, char *argv[]) {
 		FILE *fstat = fopen(filename_stat, "w");
 		if (NULL != fstat){
 			for (i = 0; i < proc_cnt; i++) {
-				fprintf(fstat, "%llu,%llu,%016llx\n",
+				fprintf(fstat, "%llu,%llu,%llu,%016llx\n",
 					thread_data[i].stat.moveno,
+					thread_data[i].stat.score,
 					thread_data[i].stat.scoreoffset,
 					thread_data[i].stat.board
 				);
