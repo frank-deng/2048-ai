@@ -477,9 +477,7 @@ static board_t initial_board() {
 
 typedef struct {
 	uint64_t moveno;
-	uint64_t score;
 	uint64_t scoreoffset;
-	uint16_t max_rank;
 	board_t board;
 } game_state_t;
 typedef struct {
@@ -493,8 +491,8 @@ int proc_cnt, running = 1, master_running = 1;
 char *filename, *filename_stat;
 
 int play_game(table_data_t *table, game_state_t *game_state) {
-    board_t board = ((game_state->moveno) <= 0 ? initial_board() : game_state->board);
-    int scorepenalty = ((game_state->moveno) <= 0 ? 0 : game_state->scoreoffset); // "penalty" for obtaining free 4 tiles
+    board_t board = game_state->board;
+	int playing = 1;
 
     while(running) {
         int move;
@@ -505,6 +503,7 @@ int play_game(table_data_t *table, game_state_t *game_state) {
                 break;
         }
         if(move == 4) {
+			playing = 0;
             break; // no legal moves
 		}
 		//print_board(board);
@@ -512,6 +511,7 @@ int play_game(table_data_t *table, game_state_t *game_state) {
 
         move = find_best_move(table, board);
         if(move < 0) {
+			playing = 0;
             break;
 		}
 
@@ -524,27 +524,29 @@ int play_game(table_data_t *table, game_state_t *game_state) {
 
         board_t tile = draw_tile();
         if (tile == 2) {
-			scorepenalty += 4;
+			(game_state->scoreoffset) += 4;
 		}
         board = insert_tile_rand(newboard, tile);
     }
-	game_state->score = score_board(table, board);
-	game_state->scoreoffset = scorepenalty;
-	game_state->max_rank = (1 << get_max_rank(board));
 	game_state->board = board;
-	return running;
+	return playing;
 }
 void* thread_main(void *data){
 	FILE *fp;
+	table_data_t* table_data = &(((thread_data_t*)data)->table);
 	game_state_t* game_state = &(((thread_data_t*)data)->stat);
 	while (running) {
-		if (play_game(&(((thread_data_t*)data)->table), game_state)) {
+		if (0 == game_state->moveno){
+			game_state->board = initial_board();
+			game_state->scoreoffset = 0;
+		}
+		if (!play_game(table_data, game_state)) {
 			pthread_mutex_lock(&mutex);
 			if (fp = fopen(filename, "a")) {
-				fprintf(fp, "%lu,%lu,%d,%016llx\n",
+				fprintf(fp, "%llu,%llu,%u,%016llx\n",
 					game_state->moveno,
-					game_state->score - game_state->scoreoffset,
-					game_state->max_rank,
+					(unsigned long long)(score_board(table_data, game_state->board)) - game_state->scoreoffset,
+					1 << get_max_rank(game_state->board),
 					game_state->board
 				);
 				fclose(fp);
@@ -562,24 +564,6 @@ void action_quit(int sig){
 	running = 0;
 	master_running = 0;
 }
-void get_stat(char *filename, uint64_t *stat) {
-	FILE *fp;
-	uint64_t dummy, maxval = 0, idx;
-	char sdummy[128];
-	if (fp = fopen(filename, "r")) {
-		while (!feof(fp)) {
-			fscanf(fp, "%lu,%lu,%lu,%s", &dummy, &dummy, &maxval, sdummy);
-			idx = 0;
-			if (0 == maxval) {
-				continue;
-			}
-			while (!(maxval & 1)) {
-				maxval >>= 1; idx++;
-			}
-			stat[idx]++;
-		}
-	}
-}
 int main(int argc, char *argv[]) {
 	int i, cnt;
 	uint64_t stat[16] = {
@@ -587,36 +571,8 @@ int main(int argc, char *argv[]) {
 		0, 0, 0, 0, 0, 0, 0, 0,
 	};
 	if (argc < 3) {
-		fprintf(stderr, "Usage:\n%s LOGFILE STATEFILE\n%s [stat] LOGFILE\n", argv[0], argv[0]);
+		fprintf(stderr, "Usage: %s LOGFILE STATEFILE\n", argv[0], argv[0]);
 		return 1;
-	}
-	if (!strcmp(argv[1], "stat")) {
-		filename = argv[2];
-		get_stat(filename, stat);
-		for (i = 1; i < 16; i++) {
-			if (stat[i]) {
-				printf("%lu,%lu\n", 1<<i, stat[i]);
-			}
-		}
-		return 0;
-	} else if (!strcmp(argv[1], "statb")) {
-		filename = argv[2];
-		get_stat(filename, stat);
-		cnt = 0;
-		for (i = 1; i < 16; i++) {
-			if (stat[i]) {
-				cnt++;
-			}
-		}
-		printf("100 DATA %d,5\r\n", cnt);
-		cnt = 1;
-		for (i = 1; i < 16; i++) {
-			if (stat[i]) {
-				printf("%d DATA \"%5d\",%d\r\n", 100+cnt, 1<<i, stat[i]);
-				cnt++;
-			}
-		}
-		return 0;
 	}
 
 	filename = argv[1];
@@ -635,11 +591,9 @@ int main(int argc, char *argv[]) {
 	FILE *fstat = fopen(filename_stat, "r");
 	if (NULL != fstat){
 		for (i = 0; i < proc_cnt; i++) {
-			fscanf(fstat, "%llu,%llu,%llu,%u,%016llx",
+			fscanf(fstat, "%llu,%llu,%016llx",
 				&(thread_data[i].stat.moveno),
-				&(thread_data[i].stat.score),
 				&(thread_data[i].stat.scoreoffset),
-				&(thread_data[i].stat.max_rank),
 				&(thread_data[i].stat.board)
 			);
 		}
@@ -651,7 +605,6 @@ int main(int argc, char *argv[]) {
 		for (i = 0; i < proc_cnt; i++) {
 			pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
 		}
-
 		for (i = 0; i < proc_cnt; i++) {
 			pthread_join(thread_data[i].tid, NULL);
 		}
@@ -659,11 +612,9 @@ int main(int argc, char *argv[]) {
 		FILE *fstat = fopen(filename_stat, "w");
 		if (NULL != fstat){
 			for (i = 0; i < proc_cnt; i++) {
-				fprintf(fstat, "%llu,%llu,%llu,%u,%016llx\n",
+				fprintf(fstat, "%llu,%llu,%016llx\n",
 					thread_data[i].stat.moveno,
-					thread_data[i].stat.score,
 					thread_data[i].stat.scoreoffset,
-					thread_data[i].stat.max_rank,
 					thread_data[i].stat.board
 				);
 			}
