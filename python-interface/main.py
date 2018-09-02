@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-from ctypes import cdll
-lib2048 = cdll.LoadLibrary('./lib2048.so');
+import ctypes;
+lib2048 = ctypes.CDLL('./lib2048.so');
+lib2048.find_best_move.argtypes = [ctypes.c_uint64];
 
 def __trailingZeros(num):
     if (num == 0):
@@ -14,19 +15,18 @@ def __trailingZeros(num):
 
 def findBestMove(board):
     boardHex = 0;
-    for i in range(4):
-        for j in range(4):
-            n = __trailingZeros(board[(3-i)*4+(3-j)]);
-            boardHex <<= 4;
-            boardHex |= n;
-    print('%x'%boardHex);
-    moveTable = {
+    i = 0;
+    for row in range(4):
+        for col in range(4):
+            n = __trailingZeros(board[row*4+col]);
+            boardHex |= (int(n) << (i*4));
+            i += 1;
+    return {
         '0': 'UP',
         '1': 'DOWN',
         '2': 'LEFT',
         '3': 'RIGHT',
-    }
-    return moveTable.get(str(lib2048.find_best_move(boardHex)));
+    }.get(str(lib2048.find_best_move(boardHex)));
 
 if '__main__' == __name__:
     print(findBestMove([
