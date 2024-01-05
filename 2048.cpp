@@ -10,276 +10,17 @@
  */
 
 #include <ctype.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <time.h>
-#include <algorithm>
+//#include <algorithm>
 #include <unordered_map>
-#include <signal.h>
-#include <pthread.h>
-extern "C" {
-	int nprocs();
-}
+#include "2048.h"
 
-static inline unsigned unif_random(unsigned n) {
-    static int seeded = 0;
-    if(!seeded) {
-        int fd = open("/dev/urandom", O_RDONLY);
-        unsigned short seed[3];
-        if(fd < 0 || read(fd, seed, sizeof(seed)) < (int)sizeof(seed)) {
-            srand48(time(NULL));
-        } else {
-            seed48(seed);
-        }
-        if(fd >= 0) {
-            close(fd);
-		}
-        seeded = 1;
-    }
-    return (int)(drand48() * n);
-}
-
-typedef uint64_t board_t;
-typedef uint16_t row_t;
-
-//store the depth at which the heuristic was recorded as well as the actual heuristic
-struct trans_table_entry_t{
-    uint8_t depth;
-    float heuristic;
-};
-
-typedef std::unordered_map<board_t, trans_table_entry_t> trans_table_t;
-static const board_t ROW_MASK = 0xFFFFULL;
-static const board_t COL_MASK = 0x000F000F000F000FULL;
-
-static inline void print_board(board_t board) {
-    int i,j;
-    for(i=0; i<4; i++) {
-        for(j=0; j<4; j++) {
-            uint8_t powerVal = (board) & 0xf;
-            printf("%6u", (powerVal == 0) ? 0 : 1 << powerVal);
-            board >>= 4;
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
-
-static inline board_t unpack_col(row_t row) {
-    board_t tmp = row;
-    return (tmp | (tmp << 12ULL) | (tmp << 24ULL) | (tmp << 36ULL)) & COL_MASK;
-}
-
-static inline row_t reverse_row(row_t row) {
-    return (row >> 12) | ((row >> 4) & 0x00F0)  | ((row << 4) & 0x0F00) | (row << 12);
-}
-
-/*
-Transpose rows/columns in a board:
-   0123       048c
-   4567  -->  159d
-   89ab       26ae
-   cdef       37bf
-*/
-static inline board_t transpose(board_t x)
-{
-    board_t a1 = x & 0xF0F00F0FF0F00F0FULL;
-    board_t a2 = x & 0x0000F0F00000F0F0ULL;
-    board_t a3 = x & 0x0F0F00000F0F0000ULL;
-    board_t a = a1 | (a2 << 12) | (a3 >> 12);
-    board_t b1 = a & 0xFF00FF0000FF00FFULL;
-    board_t b2 = a & 0x00FF00FF00000000ULL;
-    board_t b3 = a & 0x00000000FF00FF00ULL;
-    return b1 | (b2 >> 24) | (b3 << 24);
-}
-
-// Count the number of empty positions (= zero nibbles) in a board.
-// Precondition: the board cannot be fully empty.
-static int count_empty(board_t x)
-{
-    x |= (x >> 2) & 0x3333333333333333ULL;
-    x |= (x >> 1);
-    x = ~x & 0x1111111111111111ULL;
-    // At this point each nibble is:
-    //  0 if the original nibble was non-zero
-    //  1 if the original nibble was zero
-    // Next sum them all
-    x += x >> 32;
-    x += x >> 16;
-    x += x >>  8;
-    x += x >>  4; // this can overflow to the next nibble if there were 16 empty positions
-    return x & 0xf;
-}
-
-/* We can perform state lookups one row at a time by using arrays with 65536 entries. */
-
-/* Move tables. Each row or compressed column is mapped to (oldrow^newrow) assuming row/col 0.
- *
- * Thus, the value is 0 if there is no move, and otherwise equals a value that can easily be
- * xor'ed into the current board state to update the board. */
-typedef struct {
-	row_t row_left_table [65536];
-	row_t row_right_table[65536];
-	board_t col_up_table[65536];
-	board_t col_down_table[65536];
-	float heur_score_table[65536];
-	float score_table[65536];
-} table_data_t;
-
-// Heuristic scoring settings
-static const float SCORE_LOST_PENALTY = 200000.0f;
-static const float SCORE_MONOTONICITY_POWER = 4.0f;
-static const float SCORE_MONOTONICITY_WEIGHT = 47.0f;
-static const float SCORE_SUM_POWER = 3.5f;
-static const float SCORE_SUM_WEIGHT = 11.0f;
-static const float SCORE_MERGES_WEIGHT = 700.0f;
-static const float SCORE_EMPTY_WEIGHT = 270.0f;
-
-void init_tables(table_data_t *table) {
-    for (unsigned row = 0; row < 65536; ++row) {
-        unsigned line[4] = {
-                (row >>  0) & 0xf,
-                (row >>  4) & 0xf,
-                (row >>  8) & 0xf,
-                (row >> 12) & 0xf
-        };
-
-        // Score
-        float score = 0.0f;
-        for (int i = 0; i < 4; ++i) {
-            int rank = line[i];
-            if (rank >= 2) {
-                // the score is the total sum of the tile and all intermediate merged tiles
-                score += (rank - 1) * (1 << rank);
-            }
-        }
-        (table->score_table)[row] = score;
-
-        // Heuristic score
-        float sum = 0;
-        int empty = 0;
-        int merges = 0;
-
-        int prev = 0;
-        int counter = 0;
-        for (int i = 0; i < 4; ++i) {
-            int rank = line[i];
-            sum += pow(rank, SCORE_SUM_POWER);
-            if (rank == 0) {
-                empty++;
-            } else {
-                if (prev == rank) {
-                    counter++;
-                } else if (counter > 0) {
-                    merges += 1 + counter;
-                    counter = 0;
-                }
-                prev = rank;
-            }
-        }
-        if (counter > 0) {
-            merges += 1 + counter;
-        }
-
-        float monotonicity_left = 0;
-        float monotonicity_right = 0;
-        for (int i = 1; i < 4; ++i) {
-            if (line[i-1] > line[i]) {
-                monotonicity_left += pow(line[i-1], SCORE_MONOTONICITY_POWER) - pow(line[i], SCORE_MONOTONICITY_POWER);
-            } else {
-                monotonicity_right += pow(line[i], SCORE_MONOTONICITY_POWER) - pow(line[i-1], SCORE_MONOTONICITY_POWER);
-            }
-        }
-
-        (table->heur_score_table)[row] = SCORE_LOST_PENALTY +
-            SCORE_EMPTY_WEIGHT * empty +
-            SCORE_MERGES_WEIGHT * merges -
-            SCORE_MONOTONICITY_WEIGHT * std::min(monotonicity_left, monotonicity_right) -
-            SCORE_SUM_WEIGHT * sum;
-
-        // execute a move to the left
-        for (int i = 0; i < 3; ++i) {
-            int j;
-            for (j = i + 1; j < 4; ++j) {
-                if (line[j] != 0) break;
-            }
-            if (j == 4) break; // no more tiles to the right
-
-            if (line[i] == 0) {
-                line[i] = line[j];
-                line[j] = 0;
-                i--; // retry this entry
-            } else if (line[i] == line[j]) {
-                if(line[i] != 0xf) {
-                    /* Pretend that 32768 + 32768 = 32768 (representational limit). */
-                    line[i]++;
-                }
-                line[j] = 0;
-            }
-        }
-
-        row_t result = (line[0] <<  0) |
-                       (line[1] <<  4) |
-                       (line[2] <<  8) |
-                       (line[3] << 12);
-        row_t rev_result = reverse_row(result);
-        unsigned rev_row = reverse_row(row);
-
-        (table->row_left_table)[row] = row ^ result;
-        (table->row_right_table)[rev_row] = rev_row ^ rev_result;
-        (table->col_up_table)[row] = unpack_col(row) ^ unpack_col(result);
-        (table->col_down_table)[rev_row] = unpack_col(rev_row) ^ unpack_col(rev_result);
-    }
-}
-
-/* Execute a move. */
-static inline board_t execute_move(table_data_t *table, int move, board_t board) {
-    board_t ret = board, t;
-    switch(move) {
-		case 0: // up
-			t = transpose(board);
-			ret ^= (table->col_up_table)[(t >>  0) & ROW_MASK] <<  0;
-			ret ^= (table->col_up_table)[(t >> 16) & ROW_MASK] <<  4;
-			ret ^= (table->col_up_table)[(t >> 32) & ROW_MASK] <<  8;
-			ret ^= (table->col_up_table)[(t >> 48) & ROW_MASK] << 12;
-			return ret;
-		case 1: // down
-			t = transpose(board);
-			ret ^= (table->col_down_table)[(t >>  0) & ROW_MASK] <<  0;
-			ret ^= (table->col_down_table)[(t >> 16) & ROW_MASK] <<  4;
-			ret ^= (table->col_down_table)[(t >> 32) & ROW_MASK] <<  8;
-			ret ^= (table->col_down_table)[(t >> 48) & ROW_MASK] << 12;
-			return ret;
-		case 2: // left
-			ret ^= board_t((table->row_left_table)[(board >>  0) & ROW_MASK]) <<  0;
-			ret ^= board_t((table->row_left_table)[(board >> 16) & ROW_MASK]) << 16;
-			ret ^= board_t((table->row_left_table)[(board >> 32) & ROW_MASK]) << 32;
-			ret ^= board_t((table->row_left_table)[(board >> 48) & ROW_MASK]) << 48;
-			return ret;
-		case 3: // right
-			ret ^= board_t((table->row_right_table)[(board >>  0) & ROW_MASK]) <<  0;
-			ret ^= board_t((table->row_right_table)[(board >> 16) & ROW_MASK]) << 16;
-			ret ^= board_t((table->row_right_table)[(board >> 32) & ROW_MASK]) << 32;
-			ret ^= board_t((table->row_right_table)[(board >> 48) & ROW_MASK]) << 48;
-			return ret;
-		default:
-			return ~0ULL;
-    }
-}
-static inline int get_max_rank(board_t board) {
-    int maxrank = 0;
-    while (board) {
-        maxrank = std::max(maxrank, int(board & 0xf));
-        board >>= 4;
-    }
-    return maxrank;
-}
-static inline int count_distinct_tiles(board_t board) {
+static inline uint8_t count_distinct_tiles(board_t board) {
     uint16_t bitset = 0;
     while (board) {
         bitset |= 1<<(board & 0xf);
@@ -289,13 +30,20 @@ static inline int count_distinct_tiles(board_t board) {
     // Don't count empty tiles.
     bitset >>= 1;
 
-    int count = 0;
+    uint8_t count = 0;
     while (bitset) {
         bitset &= bitset - 1;
         count++;
     }
     return count;
 }
+
+//store the depth at which the heuristic was recorded as well as the actual heuristic
+struct trans_table_entry_t{
+    uint8_t depth;
+    float heuristic;
+};
+typedef std::unordered_map<board_t, trans_table_entry_t> trans_table_t;
 
 /* Optimizing the game */
 struct eval_state {
@@ -314,22 +62,10 @@ static float score_move_node(table_data_t *table, eval_state &state, board_t boa
 // score over all possible tile choices and placements
 static float score_tilechoose_node(table_data_t *table, eval_state &state, board_t board, float cprob);
 
-static float score_helper(board_t board, const float* table) {
-    return table[(board >>  0) & ROW_MASK] +
-           table[(board >> 16) & ROW_MASK] +
-           table[(board >> 32) & ROW_MASK] +
-           table[(board >> 48) & ROW_MASK];
-}
-
 // score a single board heuristically
-static float score_heur_board(table_data_t *table, board_t board) {
+static inline float score_heur_board(table_data_t *table, board_t board) {
     return score_helper(          board , table->heur_score_table) +
            score_helper(transpose(board), table->heur_score_table);
-}
-
-// score a single board actually (adding in the score from spawned 4 tiles)
-static float score_board(table_data_t *table, board_t board) {
-    return score_helper(board, table->score_table);
 }
 
 // Statistics and controls
@@ -340,7 +76,7 @@ static const int CACHE_DEPTH_LIMIT  = 15;
 
 static float score_tilechoose_node(table_data_t *table, eval_state &state, board_t board, float cprob) {
     if (cprob < CPROB_THRESH_BASE || state.curdepth >= state.depth_limit) {
-        state.maxdepth = std::max(state.curdepth, state.maxdepth);
+        state.maxdepth = max(state.curdepth, state.maxdepth);
         return score_heur_board(table, board);
     }
     if (state.curdepth < CACHE_DEPTH_LIMIT) {
@@ -353,8 +89,7 @@ static float score_tilechoose_node(table_data_t *table, eval_state &state, board
             This will result in slightly fewer cache hits, but should not impact the
             strength of the ai negatively.
             */
-            if(entry.depth <= state.curdepth)
-            {
+            if(entry.depth <= state.curdepth) {
                 state.cachehits++;
                 return entry.heuristic;
             }
@@ -392,7 +127,7 @@ static float score_move_node(table_data_t *table, eval_state &state, board_t boa
         state.moves_evaled++;
 
         if (board != newboard) {
-            best = std::max(best, score_tilechoose_node(table, state, newboard, cprob));
+            best = max(best, score_tilechoose_node(table, state, newboard, cprob));
         }
     }
     state.curdepth--;
@@ -412,7 +147,7 @@ float score_toplevel_move(table_data_t *table, board_t board, int move) {
     //struct timeval start, finish;
     //double elapsed;
     eval_state state;
-    state.depth_limit = std::max(3, count_distinct_tiles(board) - 2);
+    state.depth_limit = max(3, count_distinct_tiles(board) - 2);
 
     //gettimeofday(&start, NULL);
     res = _score_toplevel_move(table, state, board, move);
@@ -446,191 +181,3 @@ int find_best_move(table_data_t *table, board_t board) {
     }
     return bestmove;
 }
-
-/* Playing the game */
-static board_t draw_tile() {
-    return (unif_random(10) < 9) ? 1 : 2;
-}
-
-static board_t insert_tile_rand(board_t board, board_t tile) {
-    int index = unif_random(count_empty(board));
-    board_t tmp = board;
-    while (true) {
-        while ((tmp & 0xf) != 0) {
-            tmp >>= 4;
-            tile <<= 4;
-        }
-        if (index == 0) break;
-        --index;
-        tmp >>= 4;
-        tile <<= 4;
-    }
-    return board | tile;
-}
-
-static board_t initial_board() {
-    board_t board = draw_tile() << (4 * unif_random(16));
-    return insert_tile_rand(board, draw_tile());
-}
-
-/*Play 2048 game in multiple threads*/
-
-typedef struct {
-	uint64_t moveno;
-	uint64_t score;
-	uint64_t scoreoffset;
-	board_t board;
-} game_state_t;
-typedef struct {
-	pthread_t tid;
-	table_data_t table;
-	game_state_t stat;
-} thread_data_t;
-thread_data_t *thread_data;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-int proc_cnt, running = 1, master_running = 1;
-char *filename, *filename_stat;
-
-int play_game(table_data_t *table, game_state_t *game_state) {
-    board_t board = game_state->board;
-	int playing = 1;
-
-    while(running) {
-        int move;
-        board_t newboard;
-
-        for(move = 0; move < 4; move++) {
-            if(execute_move(table, move, board) != board)
-                break;
-        }
-        if(move == 4) {
-			playing = 0;
-            break; // no legal moves
-		}
-		//print_board(board);
-		(game_state->moveno)++;
-
-        move = find_best_move(table, board);
-        if(move < 0) {
-			playing = 0;
-            break;
-		}
-
-        newboard = execute_move(table, move, board);
-        if(newboard == board) {
-            printf("Illegal move!\n");
-			(game_state->moveno)--;
-            continue;
-        }
-
-        board_t tile = draw_tile();
-        if (tile == 2) {
-			(game_state->scoreoffset) += 4;
-		}
-        board = insert_tile_rand(newboard, tile);
-    }
-	game_state->score = (uint64_t)score_board(table, board);
-	game_state->board = board;
-	return playing;
-}
-void* thread_main(void *data){
-	FILE *fp;
-	table_data_t* table_data = &(((thread_data_t*)data)->table);
-	game_state_t* game_state = &(((thread_data_t*)data)->stat);
-	while (running) {
-		if (0 == game_state->moveno){
-			game_state->board = initial_board();
-			game_state->scoreoffset = 0;
-		}
-		if (!play_game(table_data, game_state)) {
-			pthread_mutex_lock(&mutex);
-			if (fp = fopen(filename, "a")) {
-				fprintf(fp, "%llu,%llu,%u,%016llx\n",
-					game_state->moveno,
-					game_state->score - game_state->scoreoffset,
-					1 << get_max_rank(game_state->board),
-					game_state->board
-				);
-				fclose(fp);
-			}
-			pthread_mutex_unlock(&mutex);
-			game_state->moveno = 0;
-		}
-	}
-	return ((void*)0);
-}
-void action_report(int sig){
-	running = 0;
-}
-void action_quit(int sig){
-	running = 0;
-	master_running = 0;
-}
-int main(int argc, char *argv[]) {
-	int i, cnt;
-	uint64_t dummy;
-	uint64_t stat[16] = {
-		0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0,
-	};
-	if (argc < 3) {
-		fprintf(stderr, "Usage: %s LOGFILE STATEFILE\n", argv[0], argv[0]);
-		return 1;
-	}
-
-	filename = argv[1];
-	filename_stat = argv[2];
-
-	proc_cnt = nprocs();
-	signal(SIGINT, action_quit);
-	signal(SIGQUIT, action_quit);
-	signal(SIGUSR1, action_report);
-    thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
-
-	for (i = 0; i < proc_cnt; i++) {
-		init_tables(&(thread_data[i].table));
-		thread_data[i].stat.moveno = 0;
-	}
-	FILE *fstat = fopen(filename_stat, "r");
-	if (NULL != fstat){
-		for (i = 0; i < proc_cnt; i++) {
-			fscanf(fstat, "%llu,%llu,%llu,%016llx",
-				&(thread_data[i].stat.moveno),
-				&dummy,
-				&(thread_data[i].stat.scoreoffset),
-				&(thread_data[i].stat.board)
-			);
-		}
-		fclose(fstat);
-	}
-
-	while (master_running){
-		running = 1;
-		for (i = 0; i < proc_cnt; i++) {
-			pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
-		}
-		for (i = 0; i < proc_cnt; i++) {
-			pthread_join(thread_data[i].tid, NULL);
-		}
-
-		FILE *fstat = fopen(filename_stat, "w");
-		if (NULL != fstat){
-			for (i = 0; i < proc_cnt; i++) {
-				fprintf(fstat, "%llu,%llu,%llu,%016llx\n",
-					thread_data[i].stat.moveno,
-					thread_data[i].stat.score,
-					thread_data[i].stat.scoreoffset,
-					thread_data[i].stat.board
-				);
-			}
-			fclose(fstat);
-		}
-	}
-
-	free(thread_data);
-	signal(SIGINT, SIG_DFL);
-	signal(SIGQUIT, SIG_DFL);
-	signal(SIGUSR1, SIG_DFL);
-	return 0;
-}
-
