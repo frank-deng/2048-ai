@@ -12,13 +12,13 @@ typedef struct {
 } game_state_t;
 typedef struct {
 	pthread_t tid;
-	table_data_t table;
 	game_state_t stat;
 } thread_data_t;
-thread_data_t *thread_data;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-int proc_cnt, running = 1, master_running = 1;
-char *filename, *filename_stat;
+static thread_data_t *thread_data;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static int proc_cnt, running = 1, master_running = 1;
+static char *filename, *filename_stat;
+static table_data_t table_data;
 
 int play_game(table_data_t *table, game_state_t *game_state) {
     board_t board = game_state->board;
@@ -64,14 +64,13 @@ int play_game(table_data_t *table, game_state_t *game_state) {
 }
 void* thread_main(void *data){
 	FILE *fp;
-	table_data_t* table_data = &(((thread_data_t*)data)->table);
 	game_state_t* game_state = &(((thread_data_t*)data)->stat);
 	while (running) {
 		if (0 == game_state->moveno){
 			game_state->board = initial_board();
 			game_state->scoreoffset = 0;
 		}
-		if (!play_game(table_data, game_state)) {
+		if (!play_game(&table_data, game_state)) {
 			pthread_mutex_lock(&mutex);
 			if (fp = fopen(filename, "a")) {
 				fprintf(fp, "%llu,%llu,%u,%016llx\n",
@@ -109,6 +108,7 @@ int main(int argc, char *argv[]) {
 
 	filename = argv[1];
 	filename_stat = argv[2];
+	init_tables(&table_data);
 
 	proc_cnt = get_nprocs();
 	signal(SIGINT, action_quit);
@@ -117,7 +117,6 @@ int main(int argc, char *argv[]) {
     thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
 
 	for (i = 0; i < proc_cnt; i++) {
-		init_tables(&(thread_data[i].table));
 		thread_data[i].stat.moveno = 0;
 	}
 	FILE *fstat = fopen(filename_stat, "r");
