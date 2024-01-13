@@ -163,11 +163,24 @@ float score_toplevel_move(table_data_t *table, board_t board, int move) {
     return res;
 }
 
+static inline bool has_move(table_data_t *table, board_t board)
+{
+    for (int move = 0; move < 4; move++) {
+        if(execute_move(table, move, board) != board){
+             return true;
+        }
+    }
+    return false;
+}
+
 /* Find the best move for a given board. */
 int find_best_move(table_data_t *table, board_t board) {
     int move;
     float best = 0;
     int bestmove = -1;
+    if(!has_move(table,board)){
+        return -1;
+    }
 
     //print_board(board);
     //printf("Current scores: heur %.0f, actual %.0f\n", score_heur_board(board), score_board(board));

@@ -12,149 +12,167 @@ typedef struct {
 } game_state_t;
 typedef struct {
 	pthread_t tid;
+    pthread_rwlock_t stat_rwlock;
 	game_state_t stat;
 } thread_data_t;
-static thread_data_t *thread_data;
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static int proc_cnt, running = 1, master_running = 1;
-static char *filename, *filename_stat;
+static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool volatile running = true;
+static char *filename_log;
 static table_data_t table_data;
 
-int play_game(table_data_t *table, game_state_t *game_state) {
+int write_log(char *fpath, pthread_rwlock_t *stat_rwlock, game_state_t *state)
+{
+    if(NULL == fpath){
+        return -1;
+    }
+    FILE *fp = fopen(fpath, "a");
+	if (NULL==fp) {
+        return -1;
+    }
+    game_state_t state_tmp;
+    pthread_rwlock_rdlock(stat_rwlock);
+    state_tmp = *state;
+    pthread_rwlock_unlock(stat_rwlock);
+    pthread_mutex_lock(&log_mutex);
+	fprintf(fp, "%lu,%lu,%u,%016lx\n",
+		state_tmp.moveno,
+		state_tmp.score - state_tmp.scoreoffset,
+		1 << get_max_rank(state_tmp.board),
+		state_tmp.board
+	);
+    pthread_mutex_unlock(&log_mutex);
+	fclose(fp);
+    return 0;
+}
+int read_snapshot(char *fpath, int proc_cnt, thread_data_t *thread_data)
+{
+    if(NULL == fpath){
+        return -1;
+    }
+    FILE *fp = fopen(fpath, "r");
+	if (NULL == fp){
+        return -1;
+    }
+    int i;
+	for (i = 0; i < proc_cnt; i++) {
+        pthread_rwlock_wrlock(&(thread_data[i].stat_rwlock));
+		fscanf(fp, "%lu,%lu,%lu,%016lx",
+			&(thread_data[i].stat.moveno),
+			&(thread_data[i].stat.score),
+			&(thread_data[i].stat.scoreoffset),
+			&(thread_data[i].stat.board)
+		);
+        pthread_rwlock_unlock(&(thread_data[i].stat_rwlock));
+	}
+	fclose(fp);
+    return 0;
+}
+int write_snapshot(char *fpath, int proc_cnt, thread_data_t *thread_data)
+{
+    if(NULL == fpath){
+        return -1;
+    }
+    FILE *fp = fopen(fpath, "w");
+	if (NULL == fp){
+        return -1;
+    }
+    int i;
+	for (i = 0; i < proc_cnt; i++) {
+        pthread_rwlock_rdlock(&(thread_data[i].stat_rwlock));
+		fprintf(fp, "%lu,%lu,%lu,%016lx\n",
+			thread_data[i].stat.moveno,
+			thread_data[i].stat.score,
+			thread_data[i].stat.scoreoffset,
+			thread_data[i].stat.board
+		);
+        pthread_rwlock_unlock(&(thread_data[i].stat_rwlock));
+	}
+	fclose(fp);
+    return 0;
+}
+int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock, game_state_t *game_state) {
+    pthread_rwlock_rdlock(stat_rwlock);
     board_t board = game_state->board;
-	int playing = 1;
-
+    pthread_rwlock_unlock(stat_rwlock);
     while(running) {
-        int move;
-        board_t newboard;
-
-        for(move = 0; move < 4; move++) {
-            if(execute_move(table, move, board) != board)
-                break;
-        }
-        if(move == 4) {
-			playing = 0;
-            break; // no legal moves
+        int move = find_best_move(table, board);
+        if(move < 0){
+			return 0;
 		}
-		//print_board(board);
-		(game_state->moveno)++;
-
-        move = find_best_move(table, board);
-        if(move < 0) {
-			playing = 0;
-            break;
-		}
-
-        newboard = execute_move(table, move, board);
+        board_t newboard = execute_move(table, move, board);
         if(newboard == board) {
-            printf("Illegal move!\n");
-			(game_state->moveno)--;
-            continue;
+            fprintf(stderr, "Illegal move!\n");
+			abort();
         }
-
         board_t tile = draw_tile();
+        board = insert_tile_rand(newboard, tile);
+        
+        pthread_rwlock_wrlock(stat_rwlock);
+        (game_state->moveno)++;
         if (tile == 2) {
 			(game_state->scoreoffset) += 4;
 		}
-        board = insert_tile_rand(newboard, tile);
+        game_state->score = (uint64_t)score_board(table, board);
+        game_state->board = board;
+        pthread_rwlock_unlock(stat_rwlock);
     }
-	game_state->score = (uint64_t)score_board(table, board);
-	game_state->board = board;
-	return playing;
+	return 1;
 }
 void* thread_main(void *data){
-	FILE *fp;
-	game_state_t* game_state = &(((thread_data_t*)data)->stat);
+    thread_data_t *thread_data = (thread_data_t*)data;
+	game_state_t* game_state = &(thread_data->stat);
+    pthread_rwlock_t* game_state_rwlock = &(thread_data->stat_rwlock);
 	while (running) {
-		if (0 == game_state->moveno){
-			game_state->board = initial_board();
-			game_state->scoreoffset = 0;
-		}
-		if (!play_game(&table_data, game_state)) {
-			pthread_mutex_lock(&mutex);
-			if (fp = fopen(filename, "a")) {
-				fprintf(fp, "%llu,%llu,%u,%016llx\n",
-					game_state->moveno,
-					game_state->score - game_state->scoreoffset,
-					1 << get_max_rank(game_state->board),
-					game_state->board
-				);
-				fclose(fp);
-			}
-			pthread_mutex_unlock(&mutex);
+		if (!play_game(&table_data, game_state_rwlock, game_state)) {
+            write_log(filename_log, game_state_rwlock, game_state);
+            pthread_rwlock_wrlock(game_state_rwlock);
 			game_state->moveno = 0;
+            game_state->board = initial_board();
+			game_state->score = 0;
+            game_state->scoreoffset = 0;
+            pthread_rwlock_unlock(game_state_rwlock);
 		}
 	}
-	return ((void*)0);
-}
-void action_report(int sig){
-	running = 0;
+	return NULL;
 }
 void action_quit(int sig){
-	running = 0;
-	master_running = 0;
+	running=false;
 }
 int main(int argc, char *argv[]) {
-	int i, cnt;
-	uint64_t dummy;
-	uint64_t stat[16] = {
-		0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0,
-	};
+	int i;
 	if (argc < 3) {
-		fprintf(stderr, "Usage: %s LOGFILE STATEFILE\n", argv[0], argv[0]);
+		fprintf(stderr, "Usage: %s LOGFILE STATEFILE\n", argv[0]);
 		return 1;
 	}
-
-	filename = argv[1];
-	filename_stat = argv[2];
+	char *filename_snapshot = argv[2];
+	filename_log = argv[1];
 	init_tables(&table_data);
-
-	proc_cnt = get_nprocs();
+	int proc_cnt = get_nprocs();
 	signal(SIGINT, action_quit);
 	signal(SIGQUIT, action_quit);
-	signal(SIGUSR1, action_report);
-    thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
-
+    thread_data_t *thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
 	for (i = 0; i < proc_cnt; i++) {
 		thread_data[i].stat.moveno = 0;
+        thread_data[i].stat.score = 0;
+        thread_data[i].stat.scoreoffset = 0;
+        thread_data[i].stat.board=initial_board();
+        pthread_rwlock_init(&(thread_data[i].stat_rwlock), NULL);
 	}
-	FILE *fstat = fopen(filename_stat, "r");
-	if (NULL != fstat){
-		for (i = 0; i < proc_cnt; i++) {
-			fscanf(fstat, "%llu,%llu,%llu,%016llx",
-				&(thread_data[i].stat.moveno),
-				&dummy,
-				&(thread_data[i].stat.scoreoffset),
-				&(thread_data[i].stat.board)
-			);
-		}
-		fclose(fstat);
+    read_snapshot(filename_snapshot, proc_cnt, thread_data);
+	for (i = 0; i < proc_cnt; i++) {
+		pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
 	}
-
-	while (master_running){
-		running = 1;
-		for (i = 0; i < proc_cnt; i++) {
-			pthread_create(&(thread_data[i].tid), NULL, thread_main, &(thread_data[i]));
-		}
-		for (i = 0; i < proc_cnt; i++) {
-			pthread_join(thread_data[i].tid, NULL);
-		}
-
-		FILE *fstat = fopen(filename_stat, "w");
-		if (NULL != fstat){
-			for (i = 0; i < proc_cnt; i++) {
-				fprintf(fstat, "%llu,%llu,%llu,%016llx\n",
-					thread_data[i].stat.moveno,
-					thread_data[i].stat.score,
-					thread_data[i].stat.scoreoffset,
-					thread_data[i].stat.board
-				);
-			}
-			fclose(fstat);
-		}
+    while(running) {
+        sleep(1);
+        write_snapshot(filename_snapshot, proc_cnt, thread_data);
+    }
+	for (i = 0; i < proc_cnt; i++) {
+		pthread_join(thread_data[i].tid, NULL);
 	}
-
+	write_snapshot(filename_snapshot, proc_cnt, thread_data);
+    for (i = 0; i < proc_cnt; i++) {
+		pthread_rwlock_destroy(&(thread_data[i].stat_rwlock));
+	}
 	free(thread_data);
 	signal(SIGINT, SIG_DFL);
 	signal(SIGQUIT, SIG_DFL);

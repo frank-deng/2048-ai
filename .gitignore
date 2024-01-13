@@ -1,5 +1,6 @@
 2048
-2048.log
-2048.stat
+*.log
+*.stat
+*.snapshot
 *.o
 *.so
