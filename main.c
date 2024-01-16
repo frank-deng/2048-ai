@@ -70,6 +70,9 @@ int init_files(const char *log_path, const char *snapshot_path)
     }
     fp_snapshot=fopen(snapshot_path, "rb+");
     if(NULL==fp_snapshot){
+    	fp_snapshot=fopen(snapshot_path, "wb+");
+    }
+    if(NULL==fp_snapshot){
         fprintf(stderr,"Failed to open snapshot file %s\n",snapshot_path);
         goto error_exit;
     }
