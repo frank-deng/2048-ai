@@ -22,6 +22,30 @@ static bool volatile running = true;
 static FILE *fp_log=NULL, *fp_snapshot=NULL;
 static table_data_t table_data;
 
+// For game play
+static inline board_t draw_tile() {
+    return (unif_random(10) & 1) ? 2 : 1;
+}
+static inline board_t insert_tile_rand(board_t board, board_t tile) {
+    int index = unif_random(count_empty(board));
+    board_t tmp = board;
+    while (true) {
+        while ((tmp & 0xf) != 0) {
+            tmp >>= 4;
+            tile <<= 4;
+        }
+        if (index == 0) break;
+        --index;
+        tmp >>= 4;
+        tile <<= 4;
+    }
+    return board | tile;
+}
+static inline board_t initial_board() {
+    board_t board = draw_tile() << (4 * unif_random(16));
+    return insert_tile_rand(board, draw_tile());
+}
+
 void close_files()
 {
     if (NULL != fp_log) {
