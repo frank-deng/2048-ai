@@ -113,18 +113,29 @@ int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock, game_state_t *
     pthread_rwlock_rdlock(stat_rwlock);
     board_t board = game_state->board;
     pthread_rwlock_unlock(stat_rwlock);
-    while(running) {
+    bool playing=true;
+    while(running && playing) {
         int move = find_best_move(table, board);
         if(move < 0){
-			return 0;
+			playing=false;
+            break;
 		}
         board_t newboard = execute_move(table, move, board);
         if(newboard == board) {
             fprintf(stderr, "Illegal move!\n");
 			abort();
         }
-        board_t tile = draw_tile();
-        board = insert_tile_rand(newboard, tile);
+        uint8_t max_rank=get_max_rank(newboard);
+        board_t tile = 0;
+        
+        // Since 32768+32768 cannot be represented well, stop playing when the max number is 32768
+        if(max_rank < 0xf){
+            tile=draw_tile();
+        	board=insert_tile_rand(newboard, tile);
+        }else{
+            board=newboard;
+            playing=false;
+        }
         
         pthread_rwlock_wrlock(stat_rwlock);
         (game_state->moveno)++;
@@ -135,7 +146,7 @@ int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock, game_state_t *
         game_state->board = board;
         pthread_rwlock_unlock(stat_rwlock);
     }
-	return 1;
+	return playing;
 }
 void* thread_main(void *data){
     thread_data_t *thread_data = (thread_data_t*)data;
