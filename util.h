@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+#include <pthread.h>
 
 #ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
@@ -15,8 +16,11 @@
 #define max(a,b) ((a) > (b) ? (a) : (b))
 #endif
 
-static inline uint32_t unif_random(unsigned n) {
+static pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static inline uint32_t unif_random(uint32_t n) {
     static bool seeded = false;
+    pthread_mutex_lock(&rand_mutex);
     if(!seeded) {
         int fd = open("/dev/urandom", O_RDONLY);
         unsigned short seed[3];
@@ -30,7 +34,9 @@ static inline uint32_t unif_random(unsigned n) {
 		}
         seeded = true;
     }
-    return (uint32_t)(drand48() * n);
+    double rand_val=drand48();
+    pthread_mutex_unlock(&rand_mutex);
+    return (uint32_t)(rand_val * n);
 }
 
 #endif
