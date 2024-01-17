@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <time.h>
-#include <fcntl.h>
 
 #define RAND_N 624
 #define RANDOM_MAX (0xffffffff)
@@ -30,7 +28,7 @@ enum {
     MASK_UPPER = (1ull << R)
 };
 
-static inline void initRandomSeed(rand_t* rand, uint32_t seed)
+static inline void initRandom(rand_t* rand, uint32_t seed)
 {
     uint16_t i;
     rand->mt[0] = seed;
@@ -39,19 +37,6 @@ static inline void initRandomSeed(rand_t* rand, uint32_t seed)
     }
     rand->index = N;
 };
-static inline void initRandom(rand_t* rand)
-{
-    int fd = open("/dev/urandom", O_RDONLY);
-    uint32_t seed;
-    if(fd < 0 || read(fd, &seed, sizeof(seed)) < (int)sizeof(seed)) {
-        initRandomSeed(rand,time(NULL));
-    }else{
-        initRandomSeed(rand,seed);
-    }
-    if(fd >= 0) {
-        close(fd);
-    }
-}
 static inline void twist(rand_t* rand)
 {
     uint32_t  i, x, xA;

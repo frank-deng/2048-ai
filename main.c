@@ -238,7 +238,7 @@ int main(int argc, char *argv[]) {
     thread_data_t *thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
     int i;
 	for (i = 0; i < proc_cnt; i++) {
-        initRandom(&(thread_data[i].rand));
+        initRandom(&(thread_data[i].rand), unif_random(RANDOM_MAX));
 		thread_data[i].stat.moveno = 0;
         thread_data[i].stat.score = 0;
         thread_data[i].stat.scoreoffset = 0;
