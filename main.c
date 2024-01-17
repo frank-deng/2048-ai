@@ -80,10 +80,10 @@ int init_files(const char *log_path, const char *snapshot_path)
         fprintf(stderr,"Failed to lock snapshot file %s, possibly other instance is running.\n",snapshot_path);
         goto error_exit;
     }
-    return 0;
+    return E_OK;
 error_exit:
     close_files();
-    return -1;
+    return E_FILEIO;
 }
 int write_log(pthread_rwlock_t *stat_rwlock, game_state_t *state)
 {
@@ -100,9 +100,9 @@ int write_log(pthread_rwlock_t *stat_rwlock, game_state_t *state)
 	);
     pthread_mutex_unlock(&log_mutex);
     fflush(fp_log);
-    return 0;
+    return E_OK;
 }
-int read_snapshot(int proc_cnt, thread_data_t *thread_data)
+int read_snapshot(uint16_t proc_cnt, thread_data_t *thread_data)
 {
     int i;
 	for (i = 0; i < proc_cnt; i++) {
@@ -115,9 +115,9 @@ int read_snapshot(int proc_cnt, thread_data_t *thread_data)
 		);
         pthread_rwlock_unlock(&(thread_data[i].stat_rwlock));
 	}
-    return 0;
+    return E_OK;
 }
-int write_snapshot(int proc_cnt, thread_data_t *thread_data)
+int write_snapshot(uint16_t proc_cnt, thread_data_t *thread_data)
 {
     fseek(fp_snapshot,0,SEEK_SET);
     ftruncate(fileno(fp_snapshot), 0);
@@ -134,7 +134,7 @@ int write_snapshot(int proc_cnt, thread_data_t *thread_data)
         pthread_rwlock_unlock(&(thread_data[i].stat_rwlock));
 	}
     fflush(fp_snapshot);
-    return 0;
+    return E_OK;
 }
 int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock, game_state_t *game_state) {
     pthread_rwlock_rdlock(stat_rwlock);
@@ -196,14 +196,14 @@ void action_quit(int sig){
 	running=false;
 }
 void print_help(const char *app_name){
-    fprintf(stderr,"Usage: %s [-o log_file] [-s snapshot_file]\n",app_name);
+    fprintf(stderr,"Usage: %s [-o log_file] [-s snapshot_file] [-n num_of_threads]\n",app_name);
 }
 int main(int argc, char *argv[]) {
-	int i;
+    uint16_t proc_cnt = get_nprocs();
     char *filename_snapshot="2048.snapshot";
 	char *filename_log="2048.log";
     unsigned char opt;
-    while((opt=getopt(argc,argv,"ho:s:")) != 0xff){
+    while((opt=getopt(argc,argv,"ho:s:n:")) != 0xff){
         switch(opt){
             case 'o':
                 filename_log=optarg;
@@ -211,21 +211,27 @@ int main(int argc, char *argv[]) {
             case 's':
                 filename_snapshot=optarg;
             break;
+            case 'n':
+                proc_cnt=strtoul(optarg,NULL,10);
+                if(proc_cnt<1){
+                    print_help(argv[0]);
+                	return 1;
+                }
+            break;
             default:
                 print_help(argv[0]);
                 return 1;
             break;
         }
     }
-    
-    if(init_files(filename_log, filename_snapshot) < 0){
+    if(init_files(filename_log, filename_snapshot)!=E_OK){
         return 1;
     }
 	init_tables(&table_data);
-	int proc_cnt = get_nprocs();
 	signal(SIGINT, action_quit);
 	signal(SIGQUIT, action_quit);
     thread_data_t *thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
+    int i;
 	for (i = 0; i < proc_cnt; i++) {
 		thread_data[i].stat.moveno = 0;
         thread_data[i].stat.score = 0;
@@ -252,6 +258,5 @@ int main(int argc, char *argv[]) {
     close_files();
 	signal(SIGINT, SIG_DFL);
 	signal(SIGQUIT, SIG_DFL);
-	signal(SIGUSR1, SIG_DFL);
 	return 0;
 }

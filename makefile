@@ -1,4 +1,4 @@
-TARGET=2048
+TARGET=run2048
 OBJS=2048.o table.o main.o
 HEADERS=2048.h util.h
 
@@ -22,4 +22,4 @@ main.o: main.c $(HEADERS)
 
 .PHONY: clean
 clean:
-	-rm 2048 *.o
+	-rm $(TARGET) *.o

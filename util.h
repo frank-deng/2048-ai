@@ -16,6 +16,12 @@
 #define max(a,b) ((a) > (b) ? (a) : (b))
 #endif
 
+enum{
+    E_OK,
+    E_INVAL,
+    E_FILEIO,
+};
+
 static pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static inline uint32_t unif_random(uint32_t n) {
@@ -23,7 +29,7 @@ static inline uint32_t unif_random(uint32_t n) {
     pthread_mutex_lock(&rand_mutex);
     if(!seeded) {
         int fd = open("/dev/urandom", O_RDONLY);
-        unsigned short seed[3];
+        uint16_t seed[3];
         if(fd < 0 || read(fd, seed, sizeof(seed)) < (int)sizeof(seed)) {
             srand48(time(NULL));
         } else {
