@@ -5,6 +5,7 @@
 #include <sys/file.h>
 #include <getopt.h>
 #include "2048.h"
+#include "random.h"
 
 typedef struct {
 	uint64_t moveno;
@@ -14,6 +15,7 @@ typedef struct {
 } game_state_t;
 typedef struct {
 	pthread_t tid;
+    rand_t rand;
     pthread_rwlock_t stat_rwlock;
 	game_state_t stat;
 } thread_data_t;
@@ -23,11 +25,11 @@ static FILE *fp_log=NULL, *fp_snapshot=NULL;
 static table_data_t table_data;
 
 // For game play
-static inline board_t draw_tile() {
-    return (unif_random(10) & 1) ? 2 : 1;
+static inline board_t draw_tile(rand_t *rand) {
+    return (getRandom(rand) & 1) ? 2 : 1;
 }
-static inline board_t insert_tile_rand(board_t board, board_t tile) {
-    int index = unif_random(count_empty(board));
+static inline board_t insert_tile_rand(rand_t *rand, board_t board, board_t tile) {
+    int index = getRandom(rand) % (count_empty(board));
     board_t tmp = board;
     while (true) {
         while ((tmp & 0xf) != 0) {
@@ -41,9 +43,9 @@ static inline board_t insert_tile_rand(board_t board, board_t tile) {
     }
     return board | tile;
 }
-static inline board_t initial_board() {
-    board_t board = draw_tile() << (4 * unif_random(16));
-    return insert_tile_rand(board, draw_tile());
+static inline board_t initial_board(rand_t *rand) {
+    board_t board = draw_tile(rand) << (4 * (getRandom(rand) % 16));
+    return insert_tile_rand(rand, board, draw_tile(rand));
 }
 
 void close_files()
@@ -136,7 +138,9 @@ int write_snapshot(uint16_t proc_cnt, thread_data_t *thread_data)
     fflush(fp_snapshot);
     return E_OK;
 }
-int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock, game_state_t *game_state) {
+int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock,
+    game_state_t *game_state, rand_t *rand)
+{
     pthread_rwlock_rdlock(stat_rwlock);
     board_t board = game_state->board;
     pthread_rwlock_unlock(stat_rwlock);
@@ -157,8 +161,8 @@ int play_game(table_data_t *table, pthread_rwlock_t *stat_rwlock, game_state_t *
         
         // Since 32768+32768 cannot be represented well, stop playing when the max number is 32768
         if(max_rank < 0xf){
-            tile=draw_tile();
-        	board=insert_tile_rand(newboard, tile);
+            tile=draw_tile(rand);
+        	board=insert_tile_rand(rand,newboard,tile);
         }else{
             board=newboard;
             playing=false;
@@ -179,12 +183,13 @@ void* thread_main(void *data){
     thread_data_t *thread_data = (thread_data_t*)data;
 	game_state_t* game_state = &(thread_data->stat);
     pthread_rwlock_t* game_state_rwlock = &(thread_data->stat_rwlock);
+    rand_t *rand=&thread_data->rand;
 	while (running) {
-		if (!play_game(&table_data, game_state_rwlock, game_state)) {
+		if (!play_game(&table_data, game_state_rwlock, game_state, rand)) {
             write_log(game_state_rwlock, game_state);
             pthread_rwlock_wrlock(game_state_rwlock);
 			game_state->moveno = 0;
-            game_state->board = initial_board();
+            game_state->board = initial_board(rand);
 			game_state->score = 0;
             game_state->scoreoffset = 0;
             pthread_rwlock_unlock(game_state_rwlock);
@@ -233,10 +238,11 @@ int main(int argc, char *argv[]) {
     thread_data_t *thread_data = (thread_data_t*)malloc(sizeof(thread_data_t) * proc_cnt);
     int i;
 	for (i = 0; i < proc_cnt; i++) {
+        initRandom(&(thread_data[i].rand));
 		thread_data[i].stat.moveno = 0;
         thread_data[i].stat.score = 0;
         thread_data[i].stat.scoreoffset = 0;
-        thread_data[i].stat.board=initial_board();
+        thread_data[i].stat.board=initial_board(&(thread_data[i].rand));
         pthread_rwlock_init(&(thread_data[i].stat_rwlock), NULL);
 	}
     read_snapshot(proc_cnt, thread_data);

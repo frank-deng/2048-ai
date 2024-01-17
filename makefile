@@ -1,6 +1,6 @@
 TARGET=run2048
 OBJS=2048.o table.o main.o
-HEADERS=2048.h util.h
+HEADERS=2048.h util.h random.h
 
 CC=gcc
 CPP=g++
