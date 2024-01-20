@@ -1,6 +1,6 @@
 TARGET=run2048
-OBJS=2048.o table.o main.o
-HEADERS=2048.h util.h random.h
+OBJS=2048.o table.o worker.o main.o
+HEADERS=2048.h util.h random.h worker.h
 
 CC=gcc
 CPP=g++
@@ -18,6 +18,9 @@ table.o: table.c $(HEADERS)
 	gcc $(CFLAGS) -c -o $@ $<
 
 main.o: main.c $(HEADERS)
+	gcc $(CFLAGS) -c -o $@ $<
+
+worker.o: worker.c $(HEADERS)
 	gcc $(CFLAGS) -c -o $@ $<
 
 .PHONY: clean
