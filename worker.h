@@ -23,7 +23,9 @@ struct worker_s {
     table_data_t *table_data;
     FILE *fp_log;
     FILE *fp_snapshot;
+    const char *pipe_path;
     pthread_t tid_snapshot;
+    pthread_t tid_pipe;
     uint16_t thread_count;
     thread_data_t thread_data[0];
 };
@@ -33,7 +35,7 @@ typedef struct worker_s worker_t;
 extern "C" {
 #endif
 
-worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path);
+worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path, const char *pipe_path);
 void worker_start(worker_t *worker);
 void worker_stop(worker_t *worker);
 void worker_close(worker_t *worker);

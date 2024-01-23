@@ -1,8 +1,8 @@
-#include <sys/file.h>
+#include <stdlib.h>
 #include "worker.h"
+#include "fileio.h"
 
 static table_data_t table_data;
-static bool volatile running = true;
 
 // For game play
 static inline board_t draw_tile(rand_t *rand) {
@@ -64,24 +64,6 @@ int play_game(table_data_t *table, thread_data_t *thread_data)
     }
     return playing;
 }
-int write_log(thread_data_t *thread_data)
-{
-    pthread_rwlock_rdlock(&thread_data->rwlock);
-    board_t board=thread_data->board;
-    uint64_t score_offset=thread_data->scoreoffset;
-    uint32_t moveno=thread_data->moveno;
-    pthread_rwlock_unlock(&thread_data->rwlock);
-
-    worker_t *worker=thread_data->worker;
-    uint64_t score=score_board(worker->table_data,board)-score_offset;
-    uint16_t max_rank=(1<<get_max_rank(board));
-
-    pthread_mutex_lock(&worker->log_mutex);
-    fprintf(worker->fp_log,"%u,%u,%u,%016lx\n",moveno,score,max_rank,board);
-    fflush(worker->fp_log);
-    pthread_mutex_unlock(&worker->log_mutex);
-    return E_OK;
-}
 void* thread_main(void *data){
     thread_data_t *thread_data = (thread_data_t*)data;
     while (thread_data->worker->running) {
@@ -92,107 +74,56 @@ void* thread_main(void *data){
     }
     return NULL;
 }
-
-static void close_files(FILE *fp_log, FILE *fp_snapshot)
-{
-    if (NULL != fp_log) {
-        flock(fileno(fp_log),LOCK_UN|LOCK_NB);
-        fclose(fp_log);
-    }
-    if (NULL != fp_snapshot) {
-        flock(fileno(fp_snapshot),LOCK_UN|LOCK_NB);
-        fclose(fp_snapshot);
-    }
-}
-static int init_files(worker_t *worker, const char *log_path, const char *snapshot_path)
-{
-    FILE *fp_log=NULL, *fp_snapshot=NULL;
-    fp_log=fopen(log_path, "a");
-    if(NULL==fp_log){
-        fprintf(stderr,"Failed to open log file %s\n",log_path);
-        goto error_exit;
-    }
-    if(flock(fileno(fp_log),LOCK_EX|LOCK_NB)!=0){
-        fprintf(stderr,"Failed to lock log file %s, possibly other instance is running.\n",log_path);
-        goto error_exit;
-    }
-    fp_snapshot=fopen(snapshot_path, "rb+");
-    if(NULL==fp_snapshot){
-        fp_snapshot=fopen(snapshot_path, "wb+");
-    }
-    if(NULL==fp_snapshot){
-        fprintf(stderr,"Failed to open snapshot file %s\n",snapshot_path);
-        goto error_exit;
-    }
-    if(flock(fileno(fp_snapshot),LOCK_EX|LOCK_NB)!=0){
-        fprintf(stderr,"Failed to lock snapshot file %s, possibly other instance is running.\n",snapshot_path);
-        goto error_exit;
-    }
-    worker->fp_log=fp_log;
-    worker->fp_snapshot=fp_snapshot;
-    return E_OK;
-error_exit:
-    if (NULL != fp_log) {
-        flock(fileno(fp_log),LOCK_UN|LOCK_NB);
-        fclose(fp_log);
-    }
-    if (NULL != fp_snapshot) {
-        flock(fileno(fp_snapshot),LOCK_UN|LOCK_NB);
-        fclose(fp_snapshot);
-    }
-    close_files(fp_log,fp_snapshot);
-    return E_FILEIO;
-}
-static int read_snapshot(worker_t *worker)
-{
-    int i;
-    for (i = 0; i < worker->thread_count; i++) {
-        thread_data_t *thread_data=&(worker->thread_data[i]);
-        board_t board;
-        uint32_t score_offset;
-        uint32_t moveno;
-        fscanf(worker->fp_snapshot,"%u,%u,%016lx",&moveno,&score_offset,&board);
-        pthread_rwlock_wrlock(&thread_data->rwlock);
-        thread_data->moveno=moveno;
-        thread_data->scoreoffset=score_offset;
-        thread_data->board=board;
-        pthread_rwlock_unlock(&thread_data->rwlock);
-    }
-    return E_OK;
-}
-static int write_snapshot(worker_t *worker)
-{
-    fseek(worker->fp_snapshot,0,SEEK_SET);
-    ftruncate(fileno(worker->fp_snapshot), 0);
-    fseek(worker->fp_snapshot,0,SEEK_SET);
-    int i;
-    for (i = 0; i < worker->thread_count; i++) {
-        thread_data_t *thread_data=&(worker->thread_data[i]);
-        pthread_rwlock_rdlock(&(thread_data->rwlock));
-        board_t board=thread_data->board;
-        uint64_t score_offset=thread_data->scoreoffset;
-        uint32_t moveno=thread_data->moveno;
-        pthread_rwlock_unlock(&(thread_data->rwlock));
-        fprintf(worker->fp_snapshot,"%u,%u,%016lx\n",moveno,score_offset,board);
-    }
-    fflush(worker->fp_snapshot);
-    return E_OK;
-}
 void* thread_snapshot(void *data){
     worker_t *worker = (worker_t*)data;
     while(worker->running){
-    write_snapshot(worker);
-    sleep(1);
+        write_snapshot(worker);
+        sleep(1);
     }
+    return NULL;
 }
-
-worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path)
+#define DELAY_US (100)
+void* thread_pipe(void *data){
+    worker_t *worker = (worker_t*)data;
+    int pipe_fd=open(worker->pipe_path,O_RDWR|O_NONBLOCK);
+    if(pipe_fd<0){
+        fprintf(stderr,"Open pipe failed.\n");
+        return NULL;
+    }
+    char inbuf='-';
+    char buf[1024]="";
+    while(worker->running){
+        usleep(DELAY_US);
+        inbuf='-';
+        if(read(pipe_fd,&inbuf,sizeof(inbuf))<sizeof(inbuf)){
+            continue;
+        }
+        if(inbuf!='q'){
+            continue;
+        }
+        strcpy(buf,"running\n");
+        write(pipe_fd,buf,strlen(buf));
+    }
+    if(pipe_fd>=0){
+        strcpy(buf,"exit\n");
+        write(pipe_fd,buf,strlen(buf));
+        close(pipe_fd);
+    }
+    return NULL;
+}
+worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path, const char *pipe_path)
 {
     worker_t *worker = (worker_t*)malloc(sizeof(worker_t)+sizeof(thread_data_t)*thread_count);
-    if(init_files(worker, log_path, snapshot_path)!=E_OK){
+    if(init_files(&worker->fp_log,&worker->fp_snapshot,log_path,snapshot_path)!=E_OK){
         free(worker);
         return NULL;
     }
+    if(init_pipe(pipe_path) < 0){
+        close_files(worker->fp_log,worker->fp_snapshot);
+        free(worker);
+        return NULL;
+    }
+    worker->pipe_path=pipe_path;
     init_tables(&table_data);
     worker->thread_count=thread_count;
     worker->table_data=&table_data;
@@ -217,6 +148,7 @@ void worker_start(worker_t *worker)
         pthread_create(&(thread_data->tid), NULL, thread_main, thread_data);
     }
     pthread_create(&(worker->tid_snapshot), NULL, thread_snapshot, worker);
+    pthread_create(&(worker->tid_pipe), NULL, thread_pipe, worker);
 }
 void worker_stop(worker_t *worker)
 {
@@ -227,6 +159,7 @@ void worker_stop(worker_t *worker)
         pthread_join(thread_data->tid, NULL);
     }
     pthread_join(worker->tid_snapshot,NULL);
+    pthread_join(worker->tid_pipe,NULL);
     write_snapshot(worker);
 }
 void worker_close(worker_t *worker)
@@ -237,7 +170,7 @@ void worker_close(worker_t *worker)
         pthread_rwlock_destroy(&thread_data->rwlock);
     }
     pthread_mutex_destroy(&(worker->log_mutex));
+    close_pipe(worker->pipe_path);
     close_files(worker->fp_log,worker->fp_snapshot);
     free(worker);
 }
-
