@@ -82,6 +82,29 @@ void* thread_snapshot(void *data){
     }
     return NULL;
 }
+
+static void output_thread_count(int fd,worker_t *worker)
+{
+    char buf[12];
+    snprintf(buf,sizeof(buf),"%u\n",worker->thread_count);
+    write(fd,buf,strlen(buf));
+}
+static void output_board_all(int fd,worker_t *worker)
+{
+    char buf[128];
+    uint16_t i;
+    for (i = 0; i < worker->thread_count; i++) {
+        thread_data_t *thread_data=&(worker->thread_data[i]);
+        pthread_rwlock_rdlock(&(thread_data->rwlock));
+        board_t board=thread_data->board;
+        uint32_t score_offset=thread_data->scoreoffset;
+        uint32_t moveno=thread_data->moveno;
+        pthread_rwlock_unlock(&(thread_data->rwlock));
+        uint32_t score=score_board(worker->table_data,board)-score_offset;
+        snprintf(buf,sizeof(buf),"%u,%u,%u,%016lx\n",i,moveno,score,board);
+        write(fd,buf,strlen(buf));
+    }
+}
 #define DELAY_US (100)
 void* thread_pipe(void *data){
     worker_t *worker = (worker_t*)data;
@@ -90,23 +113,25 @@ void* thread_pipe(void *data){
         fprintf(stderr,"Open pipe failed.\n");
         return NULL;
     }
-    char inbuf='-';
-    char buf[1024]="";
+    char cmd;
     while(worker->running){
         usleep(DELAY_US);
-        inbuf='-';
-        if(read(pipe_fd,&inbuf,sizeof(inbuf))<sizeof(inbuf)){
+        cmd='\0';
+        if(read(pipe_fd,&cmd,sizeof(cmd))<sizeof(cmd)){
             continue;
         }
-        if(inbuf!='q'){
-            continue;
+        switch(cmd){
+            case 'T':
+            case 't':
+            	output_thread_count(pipe_fd,worker);
+            break;
+            case 'B':
+            case 'b':
+                output_board_all(pipe_fd,worker);
+            break;
         }
-        strcpy(buf,"running\n");
-        write(pipe_fd,buf,strlen(buf));
     }
     if(pipe_fd>=0){
-        strcpy(buf,"exit\n");
-        write(pipe_fd,buf,strlen(buf));
         close(pipe_fd);
     }
     return NULL;
