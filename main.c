@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include "2048.h"
 #include "worker.h"
+#include "viewer.h"
 
 void print_help(const char *app_name){
     fprintf(stderr,"Usage: %s [-o log_file] [-s snapshot_file] [-n num_of_threads]\n",app_name);
@@ -13,9 +14,11 @@ int main(int argc, char *argv[]) {
     uint16_t proc_cnt = get_nprocs();
     char *filename_snapshot="2048.snapshot";
     char *filename_log="2048.log";
-    char *pipe_path="2048.pipe";
+    char *pipe_in="2048.in";
+    char *pipe_out="2048.out";
+    bool viewer=false;
     unsigned char opt;
-    while((opt=getopt(argc,argv,"ho:s:n:p:")) != 0xff){
+    while((opt=getopt(argc,argv,"hvo:s:n:")) != 0xff){
         switch(opt){
             case 'o':
                 filename_log=optarg;
@@ -23,8 +26,8 @@ int main(int argc, char *argv[]) {
             case 's':
                 filename_snapshot=optarg;
             break;
-            case 'p':
-                pipe_path=optarg;
+            case 'v':
+            	viewer=true;
             break;
             case 'n':
                 proc_cnt=strtoul(optarg,NULL,10);
@@ -39,6 +42,11 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
+    
+    if(viewer){
+        return viewer2048(pipe_in,pipe_out);
+    }
+    
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask,SIGINT);
@@ -46,12 +54,12 @@ int main(int argc, char *argv[]) {
     sigaddset(&mask,SIGPIPE);
     sigprocmask(SIG_BLOCK,&mask,NULL);
 
-    worker_t *worker=worker_init(proc_cnt,filename_log,filename_snapshot,pipe_path);
+    worker_t *worker=worker_init(proc_cnt,filename_log,filename_snapshot,pipe_in,pipe_out);
     if(NULL==worker){
         return 1;
     }
     worker_start(worker);
-    while(true) {
+    while(worker->running) {
 	    int signal;
         sigwait(&mask,&signal);
         if(signal==SIGINT || signal==SIGQUIT){

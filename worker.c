@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <errno.h>
 #include "worker.h"
 #include "fileio.h"
 
@@ -87,7 +88,10 @@ static void output_thread_count(int fd,worker_t *worker)
 {
     char buf[12];
     snprintf(buf,sizeof(buf),"%u\n",worker->thread_count);
-    write(fd,buf,strlen(buf));
+    int rc=write(fd,buf,strlen(buf));
+    if(rc<=0){
+        fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
+    }
 }
 static void output_board_all(int fd,worker_t *worker)
 {
@@ -102,53 +106,55 @@ static void output_board_all(int fd,worker_t *worker)
         pthread_rwlock_unlock(&(thread_data->rwlock));
         uint32_t score=score_board(worker->table_data,board)-score_offset;
         snprintf(buf,sizeof(buf),"%u,%u,%u,%016lx\n",i,moveno,score,board);
-        write(fd,buf,strlen(buf));
+        int rc=write(fd,buf,strlen(buf));
+        if(rc<=0){
+            fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
+        }
     }
 }
-#define DELAY_US (100)
+#define DELAY_US (10)
 void* thread_pipe(void *data){
     worker_t *worker = (worker_t*)data;
-    int pipe_fd=open(worker->pipe_path,O_RDWR|O_NONBLOCK);
-    if(pipe_fd<0){
-        fprintf(stderr,"Open pipe failed.\n");
-        return NULL;
-    }
     char cmd;
     while(worker->running){
         usleep(DELAY_US);
         cmd='\0';
-        if(read(pipe_fd,&cmd,sizeof(cmd))<sizeof(cmd)){
+        int rc=read(worker->fileinfo.fd_in,&cmd,sizeof(cmd));
+        if(rc<0 && errno==EAGAIN){
             continue;
+        }else if(rc<=0){
+            fprintf(stderr,"Failed to read pipe %d %d\n",rc,errno);
+            break;
         }
         switch(cmd){
             case 'T':
             case 't':
-            	output_thread_count(pipe_fd,worker);
+            	output_thread_count(worker->fileinfo.fd_out,worker);
             break;
             case 'B':
             case 'b':
-                output_board_all(pipe_fd,worker);
+                output_board_all(worker->fileinfo.fd_out,worker);
+            break;
+            case 'Q':
+            case 'q':
+                worker->running=false;
             break;
         }
     }
-    if(pipe_fd>=0){
-        close(pipe_fd);
-    }
     return NULL;
 }
-worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path, const char *pipe_path)
+worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path,
+    const char *pipe_in, const char *pipe_out)
 {
     worker_t *worker = (worker_t*)malloc(sizeof(worker_t)+sizeof(thread_data_t)*thread_count);
-    if(init_files(&worker->fp_log,&worker->fp_snapshot,log_path,snapshot_path)!=E_OK){
+    worker->fileinfo.log_path=log_path;
+    worker->fileinfo.snapshot_path=snapshot_path;
+    worker->fileinfo.pipe_in=pipe_in;
+    worker->fileinfo.pipe_out=pipe_out;
+    if(init_files(&worker->fileinfo)!=E_OK){
         free(worker);
         return NULL;
     }
-    if(init_pipe(pipe_path) < 0){
-        close_files(worker->fp_log,worker->fp_snapshot);
-        free(worker);
-        return NULL;
-    }
-    worker->pipe_path=pipe_path;
     init_tables(&table_data);
     worker->thread_count=thread_count;
     worker->table_data=&table_data;
@@ -195,7 +201,6 @@ void worker_close(worker_t *worker)
         pthread_rwlock_destroy(&thread_data->rwlock);
     }
     pthread_mutex_destroy(&(worker->log_mutex));
-    close_pipe(worker->pipe_path);
-    close_files(worker->fp_log,worker->fp_snapshot);
+    close_files(&worker->fileinfo);
     free(worker);
 }

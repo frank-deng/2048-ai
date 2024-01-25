@@ -7,15 +7,11 @@
 extern "C" {
 #endif
 
-int init_files(FILE **fp_log_out, FILE **fp_snapshot_out,
-    const char *log_path, const char *snapshot_path);
-void close_files(FILE *fp_log, FILE *fp_snapshot);
+int init_files(fileinfo_t *info);
+void close_files(fileinfo_t *info);
 int write_log(thread_data_t *thread_data);
 int read_snapshot(worker_t *worker);
 int write_snapshot(worker_t *worker);
-
-int init_pipe(const char *pipe_path);
-void close_pipe(const char *pipe_path);
 
 #ifdef __cplusplus
 }

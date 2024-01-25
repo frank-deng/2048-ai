@@ -1,6 +1,6 @@
 TARGET=run2048
-OBJS=2048.o table.o fileio.o worker.o main.o
-HEADERS=2048.h util.h random.h fileio.h worker.h
+OBJS=2048.o table.o fileio.o worker.o viewer.o main.o
+HEADERS=2048.h util.h random.h fileio.h worker.h viewer.h
 
 CC=gcc
 CPP=g++
@@ -21,6 +21,9 @@ fileio.o: fileio.c $(HEADERS)
 	gcc $(CFLAGS) -c -o $@ $<
 
 worker.o: worker.c $(HEADERS)
+	gcc $(CFLAGS) -c -o $@ $<
+
+viewer.o: viewer.c $(HEADERS)
 	gcc $(CFLAGS) -c -o $@ $<
 
 main.o: main.c $(HEADERS)
