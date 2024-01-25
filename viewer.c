@@ -3,8 +3,8 @@
 #include <stdint.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <errno.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include "util.h"
@@ -18,7 +18,7 @@ typedef struct{
     volatile bool refresh;
     uint16_t cols;
     uint16_t thread_count;
-    pthread_t tid;
+    struct termios flags_orig;
 }viewer_t;
 
 static inline void _clrscr()
@@ -28,6 +28,11 @@ static inline void _clrscr()
 static inline void goto_rowcol(uint8_t row, uint8_t col)
 {
     printf("\033[%u;%uH",row+1,col+1);
+}
+static inline int _kbhit() {
+    int bytesWaiting;
+    ioctl(STDIN_FILENO, FIONREAD, &bytesWaiting);
+    return bytesWaiting;
 }
 
 static inline int get_thread_count(viewer_t *viewer, uint16_t *out)
@@ -58,7 +63,6 @@ static inline uint16_t get_columns()
     ioctl(STDIN_FILENO,TIOCGWINSZ,&size);
     return size.ws_col;
 }
-void *viewer_thread(void *data);
 int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
 {
     viewer->fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
@@ -81,12 +85,21 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
         close(viewer->fd_out);
         return res;
     }
-    pthread_create(&viewer->tid,NULL,viewer_thread,viewer);
+    
+    // Disable echo, set stdin non-blocking for kbhit works
+    struct termios flags;
+    tcgetattr(STDIN_FILENO, &flags);
+    viewer->flags_orig=flags;
+    flags.c_lflag &= ~ICANON;
+    flags.c_lflag &= ~ECHO;
+    flags.c_lflag |= ECHONL;
+    tcsetattr(STDIN_FILENO, TCSANOW, &flags);
+    setbuf(stdin, NULL);
     return E_OK;
 }
 void close_viewer(viewer_t *viewer)
 {
-    pthread_join(viewer->tid,NULL);
+    tcsetattr(STDIN_FILENO, TCSANOW, &viewer->flags_orig);
     close(viewer->fd_in);
     close(viewer->fd_out);
 }
@@ -154,23 +167,6 @@ static inline int print_boards_all(viewer_t *viewer)
     }
     return E_OK;
 }
-void *viewer_thread(void *data)
-{
-    viewer_t *viewer=(viewer_t*)data;
-    viewer->running=true;
-    while(viewer->running){
-        if(viewer->refresh){
-            viewer->refresh=false;
-            _clrscr();
-        }
-        print_boards_all(viewer);
-        usleep(100000);
-    }
-    _clrscr();
-    goto_rowcol(0,0);
-    return NULL;
-}
-
 int viewer2048(const char *pipe_in,const char *pipe_out)
 {
     viewer_t viewer;
@@ -181,20 +177,45 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
     sigemptyset(&mask);
     sigaddset(&mask,SIGINT);
     sigaddset(&mask,SIGQUIT);
-    sigaddset(&mask,SIGPIPE);
+    sigaddset(&mask,SIGTERM);
     sigaddset(&mask,SIGWINCH);
     sigprocmask(SIG_BLOCK,&mask,NULL);
     while(viewer.running) {
-	    int signal;
-        sigwait(&mask,&signal);
-        if(signal==SIGINT || signal==SIGQUIT){
-            viewer.running=false;
-        }else if(signal==SIGWINCH){
-            viewer.cols=get_columns();
-            viewer.refresh=true;
+        if(viewer.refresh){
+            viewer.refresh=false;
+            _clrscr();
         }
-        sleep(0);
+        print_boards_all(&viewer);
+        
+        struct timespec timeout={0,1};
+        siginfo_t info;
+        int signal=sigtimedwait(&mask,&info,&timeout);
+        switch(signal){
+            case SIGINT:
+            case SIGQUIT:
+            case SIGTERM:
+                viewer.running=false;
+            break;
+            case SIGWINCH:
+                viewer.cols=get_columns();
+                viewer.refresh=true;
+            break;
+        }
+        
+        char ch='\0';
+        if(_kbhit()){
+            ch=getchar();
+        }
+        switch(ch){
+            case 'q':
+            case 'Q':
+                viewer.running=false;
+            break;
+        }
+	    usleep(100000);
     }
+    _clrscr();
+    goto_rowcol(0,0);
     close_viewer(&viewer);
     return 0;
 }
