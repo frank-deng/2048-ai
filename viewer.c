@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <errno.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include "util.h"
 #include "viewer.h"
 
@@ -52,16 +54,9 @@ static inline int get_thread_count(viewer_t *viewer, uint16_t *out)
 }
 static inline uint16_t get_columns()
 {
-    uint16_t res=80;
-    char *val=getenv("COLUMNS");
-    if(NULL==val){
-        return res;
-    }
-    res=strtoul(val,NULL,0);
-    if(res<=0){
-        res=80;
-    }
-    return res;
+    struct winsize size;
+    ioctl(STDIN_FILENO,TIOCGWINSZ,&size);
+    return size.ws_col;
 }
 void *viewer_thread(void *data);
 int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
