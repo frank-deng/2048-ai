@@ -90,9 +90,9 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
     struct termios flags;
     tcgetattr(STDIN_FILENO, &flags);
     viewer->flags_orig=flags;
-    flags.c_lflag &= ~ICANON;
-    flags.c_lflag &= ~ECHO;
-    flags.c_lflag |= ECHONL;
+    flags.c_lflag &= ~ICANON; //Make stdin non-blocking
+    flags.c_lflag &= ~ECHO;   //Turn off echo
+    flags.c_lflag |= ECHONL;  //Turn off echo
     tcsetattr(STDIN_FILENO, TCSANOW, &flags);
     setbuf(stdin, NULL);
     return E_OK;

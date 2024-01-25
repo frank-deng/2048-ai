@@ -35,7 +35,6 @@ struct worker_s {
     volatile bool running;
     table_data_t *table_data;
     fileinfo_t fileinfo;
-    pthread_t tid_snapshot;
     pthread_t tid_pipe;
     uint16_t thread_count;
     thread_data_t thread_data[0];

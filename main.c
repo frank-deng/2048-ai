@@ -4,6 +4,7 @@
 #include <sys/sysinfo.h>
 #include <getopt.h>
 #include "2048.h"
+#include "fileio.h"
 #include "worker.h"
 #include "viewer.h"
 
@@ -59,15 +60,26 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     worker_start(worker);
+    time_t t0=time(NULL);
     while(worker->running) {
-	    int signal;
-        sigwait(&mask,&signal);
-        if(signal==SIGINT || signal==SIGQUIT){
+        struct timespec timeout={0,1};
+        siginfo_t info;
+        int signal=sigtimedwait(&mask,&info,&timeout);
+        switch(signal){
+            case SIGINT:
+            case SIGQUIT:
+            case SIGTERM:
+                worker_stop(worker);
             break;
         }
-        sleep(0);
+        time_t t=time(NULL);
+        if((t-t0)>=1){
+            t0=t;
+            write_snapshot(worker);
+        }
+        usleep(10000);
     }
-    worker_stop(worker);
+    write_snapshot(worker);
     worker_close(worker);
     return 0;
 }

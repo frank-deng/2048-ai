@@ -75,14 +75,6 @@ void* thread_main(void *data){
     }
     return NULL;
 }
-void* thread_snapshot(void *data){
-    worker_t *worker = (worker_t*)data;
-    while(worker->running){
-        write_snapshot(worker);
-        sleep(1);
-    }
-    return NULL;
-}
 
 static void output_thread_count(int fd,worker_t *worker)
 {
@@ -178,7 +170,6 @@ void worker_start(worker_t *worker)
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_create(&(thread_data->tid), NULL, thread_main, thread_data);
     }
-    pthread_create(&(worker->tid_snapshot), NULL, thread_snapshot, worker);
     pthread_create(&(worker->tid_pipe), NULL, thread_pipe, worker);
 }
 void worker_stop(worker_t *worker)
@@ -189,9 +180,7 @@ void worker_stop(worker_t *worker)
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_join(thread_data->tid, NULL);
     }
-    pthread_join(worker->tid_snapshot,NULL);
     pthread_join(worker->tid_pipe,NULL);
-    write_snapshot(worker);
 }
 void worker_close(worker_t *worker)
 {
