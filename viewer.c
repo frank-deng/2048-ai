@@ -13,6 +13,7 @@ typedef struct{
     int fd_in;
     int fd_out;
     volatile bool running;
+    volatile bool refresh;
     uint16_t cols;
     uint16_t thread_count;
     pthread_t tid;
@@ -49,6 +50,19 @@ static inline int get_thread_count(viewer_t *viewer, uint16_t *out)
     *out=thread_count;
     return E_OK;
 }
+static inline uint16_t get_columns()
+{
+    uint16_t res=80;
+    char *val=getenv("COLUMNS");
+    if(NULL==val){
+        return res;
+    }
+    res=strtoul(val,NULL,0);
+    if(res<=0){
+        res=80;
+    }
+    return res;
+}
 void *viewer_thread(void *data);
 int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
 {
@@ -64,7 +78,8 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
         return E_FILEIO;
     }
     viewer->running=true;
-    viewer->cols=80;
+    viewer->refresh=true;
+    viewer->cols=get_columns();
     int res=get_thread_count(viewer,&viewer->thread_count);
     if(res!=E_OK){
         close(viewer->fd_in);
@@ -76,8 +91,6 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
 }
 void close_viewer(viewer_t *viewer)
 {
-    _clrscr();
-    goto_rowcol(0,0);
     pthread_join(viewer->tid,NULL);
     close(viewer->fd_in);
     close(viewer->fd_out);
@@ -89,12 +102,17 @@ static inline void print_board(board_t board,uint8_t row,uint8_t col) {
         goto_rowcol(row+i,col);
         for(j=0; j<4; j++) {
             uint8_t powerVal = (board) & 0xf;
-            printf("%6u", (powerVal == 0) ? 0 : 1 << powerVal);
+            if(powerVal == 0){
+                printf("    . ");
+            }else{
+                printf("%5u ", 1<<powerVal);
+            }
             board >>= 4;
         }
     }
 }
-
+#define BOARD_WIDTH 25
+#define BOARD_HEIGHT 6
 static inline int print_boards_all(viewer_t *viewer)
 {
     char cmd='b',buf[1024];
@@ -116,6 +134,7 @@ static inline int print_boards_all(viewer_t *viewer)
     
     goto_rowcol(0,0);
     char *p_start=buf,*p_end;
+    uint16_t row=0,col=0;
     for(i=0; i<viewer->thread_count; i++){
         p_end=strchr(p_start,'\n');
         if(p_end!=NULL){
@@ -129,9 +148,14 @@ static inline int print_boards_all(viewer_t *viewer)
         }else{
             break;
         }
-        goto_rowcol(i*6,0);
+        goto_rowcol(row,col);
         printf("Move:%-5u Score:%u",moveno,score);
-        print_board(board,i*6+1,0);
+        print_board(board,row+1,col);
+        col+=BOARD_WIDTH;
+        if((col+BOARD_WIDTH)>=viewer->cols){
+            col=0;
+            row+=BOARD_HEIGHT;
+        }
     }
     return E_OK;
 }
@@ -139,11 +163,16 @@ void *viewer_thread(void *data)
 {
     viewer_t *viewer=(viewer_t*)data;
     viewer->running=true;
-    _clrscr();
     while(viewer->running){
+        if(viewer->refresh){
+            viewer->refresh=false;
+            _clrscr();
+        }
         print_boards_all(viewer);
-        usleep(10000);
+        usleep(100000);
     }
+    _clrscr();
+    goto_rowcol(0,0);
     return NULL;
 }
 
@@ -158,12 +187,16 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
     sigaddset(&mask,SIGINT);
     sigaddset(&mask,SIGQUIT);
     sigaddset(&mask,SIGPIPE);
+    sigaddset(&mask,SIGWINCH);
     sigprocmask(SIG_BLOCK,&mask,NULL);
     while(viewer.running) {
 	    int signal;
         sigwait(&mask,&signal);
         if(signal==SIGINT || signal==SIGQUIT){
             viewer.running=false;
+        }else if(signal==SIGWINCH){
+            viewer.cols=get_columns();
+            viewer.refresh=true;
         }
         sleep(0);
     }
