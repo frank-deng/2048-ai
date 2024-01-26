@@ -8,25 +8,37 @@
 #include "worker.h"
 #include "viewer.h"
 
+#define ENV_SNAPSHOT_FILE ("RUN2048_SNAPSHOT_FILE")
+#define ENV_LOG_FILE ("RUN2048_LOG_FILE")
+#define ENV_PIPE_IN ("RUN2048_PIPE_IN")
+#define ENV_PIPE_OUT ("RUN2048_PIPE_OUT")
+
+#define DEFAULT_SNAPSHOT_FILE ("2048.snapshot")
+#define DEFAULT_LOG_FILE ("2048.log")
+#define DEFAULT_PIPE_IN (".2048.in")
+#define DEFAULT_PIPE_OUT (".2048.out")
+
 void print_help(const char *app_name){
-    fprintf(stderr,"Usage: %s [-o log_file] [-s snapshot_file] [-n num_of_threads]\n",app_name);
+    fprintf(stderr,"Daemon: %s [-n num_of_threads] &\nViewer: %s -v\n",app_name,app_name);
+}
+const char *getfromenv(const char *key,const char *defval)
+{
+    char *res=getenv(key);
+    if(NULL==res){
+        return defval;
+    }
+    return res;
 }
 int main(int argc, char *argv[]) {
     uint16_t proc_cnt = get_nprocs();
-    char *filename_snapshot="2048.snapshot";
-    char *filename_log="2048.log";
-    char *pipe_in="2048.in";
-    char *pipe_out="2048.out";
+    char *filename_snapshot=getfromenv(ENV_SNAPSHOT_FILE,DEFAULT_SNAPSHOT_FILE);
+    char *filename_log=getfromenv(ENV_LOG_FILE,DEFAULT_LOG_FILE);
+    char *pipe_in=getfromenv(ENV_PIPE_IN,DEFAULT_PIPE_IN);
+    char *pipe_out=getfromenv(ENV_PIPE_OUT,DEFAULT_PIPE_OUT);
     bool viewer=false;
     unsigned char opt;
-    while((opt=getopt(argc,argv,"hvo:s:n:")) != 0xff){
+    while((opt=getopt(argc,argv,"hvn:")) != 0xff){
         switch(opt){
-            case 'o':
-                filename_log=optarg;
-            break;
-            case 's':
-                filename_snapshot=optarg;
-            break;
             case 'v':
             	viewer=true;
             break;
