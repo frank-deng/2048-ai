@@ -51,12 +51,7 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
     
     viewer->fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
     if(viewer->fd_in<0){
-        fprintf(stderr,"Failed to open pipe %s\n",pipe_in);
-        rc=E_FILEIO;
-        goto error_exit;
-    }
-    if(flock(viewer->fd_in,LOCK_EX|LOCK_NB)!=0){
-        fprintf(stderr,"Failed to lock pipe %s, possibly other instance is running.\n",pipe_in);
+        fprintf(stderr,"Failed to open pipe %s, maybe daemon is not running.\n",pipe_in);
         rc=E_FILEIO;
         goto error_exit;
     }
@@ -64,11 +59,6 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
     viewer->fd_out=open(pipe_out,O_RDWR|O_NONBLOCK);
     if(viewer->fd_out<0){
         fprintf(stderr,"Failed to open pipe %s\n",pipe_in);
-        rc=E_FILEIO;
-        goto error_exit;
-    }
-    if(flock(viewer->fd_out,LOCK_EX|LOCK_NB)!=0){
-        fprintf(stderr,"Failed to lock pipe %s, possibly other instance is running.\n",pipe_out);
         rc=E_FILEIO;
         goto error_exit;
     }
@@ -164,7 +154,7 @@ static inline int print_boards_all(viewer_t *viewer)
         board_t board;
         sscanf(p_start,"%u,%u,%u,%lx",&idx,&moveno,&score,&board);
         goto_rowcol(row,col);
-        printf("Move:%-5u Score:%u",moveno,score);
+        printf("Move:%-5u Score:%-6u",moveno,score);
         print_board(board,row+1,col);
         col+=BOARD_WIDTH;
         if((col+BOARD_WIDTH)>=viewer->cols){
