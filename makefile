@@ -1,4 +1,4 @@
-TARGET=run2048
+TARGET=2048ai
 OBJS=2048.o table.o fileio.o worker.o viewer.o main.o
 HEADERS=2048.h util.h random.h fileio.h worker.h viewer.h
 

@@ -1,4 +1,4 @@
-run2048
+2048ai
 *.log
 *.stat
 *.snapshot

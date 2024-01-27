@@ -26,6 +26,29 @@ bool test_running(const char *log_path,const char *snapshot_path)
     }
     return running;
 }
+int wait_daemon(bool start_action,const char *pipe_in,const char *pipe_out,
+    time_t timeout)
+{
+    int rc=E_TIMEOUT;
+    time_t t0=time(NULL),t;
+    do{
+        t=time(NULL);
+        struct stat stat_in,stat_out;
+        if(start_action){
+            if(stat(pipe_in,&stat_in)==0 && stat(pipe_out,&stat_out)==0){
+                rc=E_OK;
+                break;
+            }
+        }else{
+            if(stat(pipe_in,&stat_in)!=0 && stat(pipe_out,&stat_out)!=0){
+                rc=E_OK;
+                break;
+            }
+        }
+        usleep(1000);
+    }while(t-t0 < timeout);
+    return rc;
+}
 int init_files(fileinfo_t *info)
 {
     if(NULL==info || NULL==info->log_path || NULL==info->snapshot_path ||

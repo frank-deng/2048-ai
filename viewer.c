@@ -123,12 +123,14 @@ static inline int print_boards_all(viewer_t *viewer)
     if(rc<=0){
         return E_FILEIO;
     }
-    uint8_t retry=8;
+    uint16_t retry=2000;
     do{
-        usleep(10);
+        usleep(1000);
         rc=read(viewer->fd_out,buf,sizeof(buf)-1);
     }while(viewer->running && rc<0 && errno==EAGAIN && retry--);
-    if(rc<=0){
+    if(rc<=0 && errno==EAGAIN){
+        return E_TIMEOUT;
+    }else if(rc<=0){
         return E_FILEIO;
     }
     buf[rc]='\0';
@@ -184,18 +186,23 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
     sigaddset(&mask,SIGWINCH);
     sigprocmask(SIG_BLOCK,&mask,NULL);
     time_t t0=time(NULL);
+    int rc_print=E_OK;
     while(viewer.running) {
         if(viewer.refresh){
             viewer.refresh=false;
             _clrscr();
-            print_boards_all(&viewer);
+            rc_print=print_boards_all(&viewer);
             t0=time(NULL);
         }else{
             time_t t=time(NULL);
             if((t-t0)>=1){
                 t0=t;
-                print_boards_all(&viewer);
+                rc_print=print_boards_all(&viewer);
             }
+        }
+        if(rc_print!=E_OK){
+            viewer.running=false;
+            break;
         }
         struct timespec timeout={0,1};
         siginfo_t info;

@@ -20,6 +20,8 @@ enum{
     E_OK,
     E_INVAL,
     E_FILEIO,
+    E_NOSPACE,
+    E_TIMEOUT,
 };
 
 static pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;

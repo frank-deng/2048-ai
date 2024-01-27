@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 bool test_running(const char *log_path,const char *snapshot_path);
+int wait_daemon(bool start_action,const char *pipe_in,const char *pipe_out,time_t timeout);
 int init_files(fileinfo_t *info);
 void close_files(fileinfo_t *info);
 int write_log(thread_data_t *thread_data);
