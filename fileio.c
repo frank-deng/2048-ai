@@ -156,7 +156,7 @@ int write_log(thread_data_t *thread_data)
     uint16_t max_rank=(1<<get_max_rank(board));
 
     pthread_mutex_lock(&worker->log_mutex);
-    fprintf(worker->fileinfo.fp_log,"%u,%u,%u,%016lx\n",moveno,score,max_rank,board);
+    fprintf(worker->fileinfo.fp_log,"%u,%u,%u,%016llx\n",moveno,score,max_rank,board);
     fflush(worker->fileinfo.fp_log);
     pthread_mutex_unlock(&worker->log_mutex);
     return E_OK;
@@ -169,7 +169,7 @@ int read_snapshot(worker_t *worker)
         board_t board;
         uint32_t score_offset;
         uint32_t moveno;
-        fscanf(worker->fileinfo.fp_snapshot,"%u,%u,%016lx",&moveno,&score_offset,&board);
+        fscanf(worker->fileinfo.fp_snapshot,"%u,%u,%llx",&moveno,&score_offset,&board);
         pthread_rwlock_wrlock(&thread_data->rwlock);
         thread_data->moveno=moveno;
         thread_data->scoreoffset=score_offset;
@@ -192,7 +192,7 @@ int write_snapshot(worker_t *worker)
         uint32_t score_offset=thread_data->scoreoffset;
         uint32_t moveno=thread_data->moveno;
         pthread_rwlock_unlock(&(thread_data->rwlock));
-        fprintf(fp,"%u,%u,%016lx\n",moveno,score_offset,board);
+        fprintf(fp,"%u,%u,%016llx\n",moveno,score_offset,board);
     }
     fflush(fp);
     return E_OK;

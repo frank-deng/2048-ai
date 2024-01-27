@@ -106,7 +106,7 @@ static inline void print_board(board_t board,uint8_t row,uint8_t col) {
             if(powerVal == 0){
                 printf("    . ");
             }else{
-                printf("%5u ", 1<<powerVal);
+                printf("%5u ", 1L<<powerVal);
             }
             board >>= 4;
         }
@@ -154,7 +154,7 @@ static inline int print_boards_all(viewer_t *viewer)
         }
         uint32_t moveno,score,idx;
         board_t board;
-        sscanf(p_start,"%u,%u,%u,%lx",&idx,&moveno,&score,&board);
+        sscanf(p_start,"%u,%u,%u,%llx",&idx,&moveno,&score,&board);
         goto_rowcol(row,col);
         printf("Move:%-5u Score:%-6u",moveno,score);
         print_board(board,row+1,col);
@@ -180,10 +180,6 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
     }
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask,SIGINT);
-    sigaddset(&mask,SIGQUIT);
-    sigaddset(&mask,SIGTERM);
-    sigaddset(&mask,SIGWINCH);
     sigprocmask(SIG_BLOCK,&mask,NULL);
     time_t t0=time(NULL);
     int rc_print=E_OK;
@@ -202,20 +198,6 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
         }
         if(rc_print!=E_OK){
             viewer.running=false;
-            break;
-        }
-        struct timespec timeout={0,1};
-        siginfo_t info;
-        int signal=sigtimedwait(&mask,&info,&timeout);
-        switch(signal){
-            case SIGINT:
-            case SIGQUIT:
-            case SIGTERM:
-                viewer.running=false;
-            break;
-            case SIGWINCH:
-                viewer.cols=get_columns();
-                viewer.refresh=true;
             break;
         }
         

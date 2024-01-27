@@ -66,7 +66,8 @@ int do_stop_daemon(bool daemon_running,const char *pipe_in,const char *pipe_out)
     return rc;
 }
 int main(int argc, char *argv[]) {
-    uint16_t proc_cnt = get_nprocs();
+    //uint16_t proc_cnt = get_nprocs();
+    uint16_t proc_cnt = 1;
     const char *filename_snapshot=getfromenv(ENV_SNAPSHOT_FILE,DEFAULT_SNAPSHOT_FILE);
     const char *filename_log=getfromenv(ENV_LOG_FILE,DEFAULT_LOG_FILE);
     const char *pipe_in=getfromenv(ENV_PIPE_IN,DEFAULT_PIPE_IN);
@@ -134,22 +135,9 @@ int main(int argc, char *argv[]) {
     }
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask,SIGINT);
-    sigaddset(&mask,SIGQUIT);
-    sigaddset(&mask,SIGPIPE);
     sigprocmask(SIG_BLOCK,&mask,NULL);
     time_t t0=time(NULL);
     while(worker->running) {
-        struct timespec timeout={0,1};
-        siginfo_t info;
-        int signal=sigtimedwait(&mask,&info,&timeout);
-        switch(signal){
-            case SIGINT:
-            case SIGQUIT:
-            case SIGTERM:
-                worker->running=false;
-            break;
-        }
         time_t t=time(NULL);
         if((t-t0)>=1){
             t0=t;
@@ -160,3 +148,4 @@ int main(int argc, char *argv[]) {
     worker_stop(worker);
     return 0;
 }
+

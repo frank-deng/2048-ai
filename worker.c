@@ -93,7 +93,7 @@ static void output_board_all(int fd,worker_t *worker)
         uint32_t moveno=thread_data->moveno;
         pthread_rwlock_unlock(&(thread_data->rwlock));
         uint32_t score=score_board(worker->table_data,board)-score_offset;
-        snprintf(buf,sizeof(buf),"%u,%u,%u,%016lx\n",i,moveno,score,board);
+        snprintf(buf,sizeof(buf),"%u,%u,%u,%016llx\n",i,moveno,score,board);
         int rc=write(fd,buf,strlen(buf));
         if(rc<=0){
             fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
