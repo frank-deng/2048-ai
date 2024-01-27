@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+bool test_running(const char *log_path,const char *snapshot_path);
 int init_files(fileinfo_t *info);
 void close_files(fileinfo_t *info);
 int write_log(thread_data_t *thread_data);

@@ -2,6 +2,8 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/sysinfo.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <getopt.h>
 #include "2048.h"
 #include "fileio.h"
@@ -19,8 +21,11 @@
 #define DEFAULT_PIPE_OUT (".2048.out")
 
 void print_help(const char *app_name){
-    fprintf(stderr,"Daemon: %s [-n num_of_threads] &\nViewer: %s -v\n",app_name,app_name);
-    fprintf(stderr,"After daemon started, send signal SIGINT to the daemon process to stop it gracefully.\n");
+    char *app_name_last=strrchr(app_name,'/');
+    if(NULL!=app_name_last){
+        app_name=app_name_last+1;
+    }
+    fprintf(stderr,"Usage: %s [-h] [-d] [-n threads]\n",app_name);
 }
 const char *getfromenv(const char *key,const char *defval)
 {
@@ -30,18 +35,57 @@ const char *getfromenv(const char *key,const char *defval)
     }
     return res;
 }
+int do_stop_daemon(bool daemon_running,const char *pipe_in,const char *pipe_out){
+    if(!daemon_running){
+        fprintf(stderr,"2048 daemon is not running.\n");
+        return 1;
+    }
+    int fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
+    if(fd_in<0){
+        fprintf(stderr,"Failed to communicate with 2048 daemon.\n");
+        return 1;
+    }
+    int rc=0;
+    char cmd='q';
+    if(write(fd_in,&cmd,sizeof(cmd))<sizeof(cmd)){
+        fprintf(stderr,"Failed to stop 2048 daemon.\n");
+        rc=1;
+    }
+    close(fd_in);
+    
+    // Check whether daemon stopped
+    time_t t0=time(NULL),t;
+    do{
+        t=time(NULL);
+        struct stat stat_in,stat_out;
+        if(stat(pipe_in,&stat_in)!=0 && stat(pipe_out,&stat_out)!=0){
+            break;
+        }
+    }while(t-t0 < 20);
+    if(t-t0 >= 20){
+        fprintf(stderr,"Timeout.\n");
+        rc=1;
+    }else{
+        fprintf(stderr,"2048 daemon stopped.\n");
+    }
+    return rc;
+}
 int main(int argc, char *argv[]) {
     uint16_t proc_cnt = get_nprocs();
     char *filename_snapshot=getfromenv(ENV_SNAPSHOT_FILE,DEFAULT_SNAPSHOT_FILE);
     char *filename_log=getfromenv(ENV_LOG_FILE,DEFAULT_LOG_FILE);
     char *pipe_in=getfromenv(ENV_PIPE_IN,DEFAULT_PIPE_IN);
     char *pipe_out=getfromenv(ENV_PIPE_OUT,DEFAULT_PIPE_OUT);
-    bool viewer=false;
+    bool viewer=true;
+    bool stop_daemon=false;
     unsigned char opt;
-    while((opt=getopt(argc,argv,"hvn:")) != 0xff){
+    while((opt=getopt(argc,argv,"hdsn:")) != 0xff){
         switch(opt){
-            case 'v':
-            	viewer=true;
+            case 'd':
+            	viewer=false;
+            break;
+            case 's':
+            	stop_daemon=true;
             break;
             case 'n':
                 proc_cnt=strtoul(optarg,NULL,10);
@@ -56,8 +100,32 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
-    if(viewer){
-        return viewer2048(pipe_in,pipe_out);
+    
+    bool daemon_running=test_running(filename_log,filename_snapshot);
+    if(stop_daemon){
+        return do_stop_daemon(daemon_running,pipe_in,pipe_out);
+    }
+    if(daemon_running){
+        if(viewer){
+            return viewer2048(pipe_in,pipe_out);
+        }else{
+            fprintf(stderr,"2048 daemon is already running.\n");
+            return 1;
+        }
+    }
+    pid_t pid=fork();
+    if(0!=pid){
+        sleep(1);
+        if(!test_running(filename_log,filename_snapshot)){
+            fprintf(stderr,"Failed to start 2048 daemon.\n");
+            return 1;
+        }
+        if(viewer){
+            return viewer2048(pipe_in,pipe_out);
+        }else{
+            fprintf(stderr,"2048 daemon started.\n");
+            return 0;
+        }
     }
     
     worker_param_t param={

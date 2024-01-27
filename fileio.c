@@ -5,6 +5,27 @@
 #include <stdlib.h>
 #include "fileio.h"
 
+bool test_running(const char *log_path,const char *snapshot_path)
+{
+    bool running=false;
+    int fd_log=open(log_path,O_RDWR|O_NONBLOCK);
+    int fd_snapshot=open(snapshot_path,O_RDWR|O_NONBLOCK);
+    if(fd_log>=0){
+        if(flock(fd_log,LOCK_EX|LOCK_NB)!=0){
+            running=true;
+        }else{
+            flock(fd_log,LOCK_UN|LOCK_NB);
+        }
+    }
+    if(fd_snapshot>=0){
+        if(flock(fd_snapshot,LOCK_EX|LOCK_NB)!=0){
+            running=true;
+        }else{
+            flock(fd_snapshot,LOCK_UN|LOCK_NB);
+        }
+    }
+    return running;
+}
 int init_files(fileinfo_t *info)
 {
     if(NULL==info || NULL==info->log_path || NULL==info->snapshot_path ||
@@ -40,6 +61,9 @@ int init_files(fileinfo_t *info)
         fprintf(stderr,"Failed to lock snapshot file %s, possibly other instance is running.\n",info->snapshot_path);
         goto error_exit;
     }
+    
+    unlink(info->pipe_in);
+    unlink(info->pipe_out);
     
     int res=mkfifo(info->pipe_in, 0666);
     if(res < 0) {
