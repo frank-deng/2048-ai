@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/file.h>
 #include <termios.h>
 #include "util.h"
 #include "viewer.h"
@@ -17,7 +18,7 @@ typedef struct{
     volatile bool running;
     volatile bool refresh;
     uint16_t cols;
-    uint16_t thread_count;
+    bool term_init;
     struct termios flags_orig;
 }viewer_t;
 
@@ -34,57 +35,47 @@ static inline int _kbhit() {
     ioctl(STDIN_FILENO, FIONREAD, &bytesWaiting);
     return bytesWaiting;
 }
-
-static inline int get_thread_count(viewer_t *viewer, uint16_t *out)
-{
-    char cmd='t',buf[10];
-    uint8_t retry=8;
-    int rc=0;
-    while(read(viewer->fd_out,buf,sizeof(buf))>0);
-    rc=write(viewer->fd_in,&cmd,sizeof(cmd));
-    if(rc<=0){
-        return E_FILEIO;
-    }
-    do{
-        usleep(10);
-        rc=read(viewer->fd_out,buf,sizeof(buf)-1);
-    }while(viewer->running && rc<0 && errno==EAGAIN && retry--);
-    if(rc<=0){
-        return E_FILEIO;
-    }
-    buf[rc]='\0';
-    uint16_t thread_count=strtoul(buf,NULL,0);
-    *out=thread_count;
-    return E_OK;
-}
 static inline uint16_t get_columns()
 {
     struct winsize size;
     ioctl(STDIN_FILENO,TIOCGWINSZ,&size);
     return size.ws_col;
 }
+
+void close_viewer(viewer_t *viewer);
 int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
 {
+    int rc=E_OK;
+    viewer->fd_in=viewer->fd_out=-1;
+    viewer->term_init=false;
+    
     viewer->fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
     if(viewer->fd_in<0){
         fprintf(stderr,"Failed to open pipe %s\n",pipe_in);
-        return E_FILEIO;
+        rc=E_FILEIO;
+        goto error_exit;
     }
+    if(flock(viewer->fd_in,LOCK_EX|LOCK_NB)!=0){
+        fprintf(stderr,"Failed to lock pipe %s, possibly other instance is running.\n",pipe_in);
+        rc=E_FILEIO;
+        goto error_exit;
+    }
+    
     viewer->fd_out=open(pipe_out,O_RDWR|O_NONBLOCK);
     if(viewer->fd_out<0){
-        close(viewer->fd_in);
         fprintf(stderr,"Failed to open pipe %s\n",pipe_in);
-        return E_FILEIO;
+        rc=E_FILEIO;
+        goto error_exit;
     }
+    if(flock(viewer->fd_out,LOCK_EX|LOCK_NB)!=0){
+        fprintf(stderr,"Failed to lock pipe %s, possibly other instance is running.\n",pipe_out);
+        rc=E_FILEIO;
+        goto error_exit;
+    }
+    
     viewer->running=true;
     viewer->refresh=true;
     viewer->cols=get_columns();
-    int res=get_thread_count(viewer,&viewer->thread_count);
-    if(res!=E_OK){
-        close(viewer->fd_in);
-        close(viewer->fd_out);
-        return res;
-    }
     
     // Disable echo, set stdin non-blocking for kbhit works
     struct termios flags;
@@ -95,13 +86,25 @@ int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
     flags.c_lflag |= ECHONL;  //Turn off echo
     tcsetattr(STDIN_FILENO, TCSANOW, &flags);
     setbuf(stdin, NULL);
+    viewer->term_init=true;
     return E_OK;
+error_exit:
+    close_viewer(viewer);
+    return rc;
 }
 void close_viewer(viewer_t *viewer)
 {
-    tcsetattr(STDIN_FILENO, TCSANOW, &viewer->flags_orig);
-    close(viewer->fd_in);
-    close(viewer->fd_out);
+    if(viewer->term_init){
+        tcsetattr(STDIN_FILENO, TCSANOW, &viewer->flags_orig);
+    }
+    if(viewer->fd_in>=0){
+        flock(viewer->fd_in,LOCK_UN|LOCK_NB);
+        close(viewer->fd_in);
+    }
+    if(viewer->fd_out>=0){
+        flock(viewer->fd_out,LOCK_UN|LOCK_NB);
+        close(viewer->fd_out);
+    }
 }
 
 static inline void print_board(board_t board,uint8_t row,uint8_t col) {
@@ -140,10 +143,19 @@ static inline int print_boards_all(viewer_t *viewer)
     }
     buf[rc]='\0';
     
+    // Get thread count
+    char *p_start=buf,*p_end=strchr(p_start,'\n');
+    if(p_end==NULL){
+        return E_INVAL;
+    }
+    *p_end='\0';
+    uint16_t thread_count=strtoul(p_start,NULL,0);
+    p_start=p_end+1;
+    
+    // Display boards
     goto_rowcol(0,0);
-    char *p_start=buf,*p_end;
     uint16_t row=0,col=0;
-    for(i=0; i<viewer->thread_count; i++){
+    for(i=0; i<thread_count; i++){
         p_end=strchr(p_start,'\n');
         if(p_end!=NULL){
             *p_end='\0';
@@ -151,11 +163,6 @@ static inline int print_boards_all(viewer_t *viewer)
         uint32_t moveno,score,idx;
         board_t board;
         sscanf(p_start,"%u,%u,%u,%lx",&idx,&moveno,&score,&board);
-        if(p_end!=NULL){
-            p_start=p_end+1;
-        }else{
-            break;
-        }
         goto_rowcol(row,col);
         printf("Move:%-5u Score:%u",moveno,score);
         print_board(board,row+1,col);
@@ -164,7 +171,13 @@ static inline int print_boards_all(viewer_t *viewer)
             col=0;
             row+=BOARD_HEIGHT;
         }
+        if(p_end!=NULL){
+            p_start=p_end+1;
+        }else{
+            break;
+        }
     }
+    fflush(stdout);
     return E_OK;
 }
 int viewer2048(const char *pipe_in,const char *pipe_out)
@@ -180,13 +193,20 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
     sigaddset(&mask,SIGTERM);
     sigaddset(&mask,SIGWINCH);
     sigprocmask(SIG_BLOCK,&mask,NULL);
+    time_t t0=time(NULL);
     while(viewer.running) {
         if(viewer.refresh){
             viewer.refresh=false;
             _clrscr();
+            print_boards_all(&viewer);
+            t0=time(NULL);
+        }else{
+            time_t t=time(NULL);
+            if((t-t0)>=1){
+                t0=t;
+                print_boards_all(&viewer);
+            }
         }
-        print_boards_all(&viewer);
-        
         struct timespec timeout={0,1};
         siginfo_t info;
         int signal=sigtimedwait(&mask,&info,&timeout);
@@ -212,7 +232,7 @@ int viewer2048(const char *pipe_in,const char *pipe_out)
                 viewer.running=false;
             break;
         }
-	    usleep(100000);
+	    usleep(1000);
     }
     _clrscr();
     goto_rowcol(0,0);

@@ -76,18 +76,14 @@ void* thread_main(void *data){
     return NULL;
 }
 
-static void output_thread_count(int fd,worker_t *worker)
+static void output_board_all(int fd,worker_t *worker)
 {
-    char buf[12];
+    char buf[128];
     snprintf(buf,sizeof(buf),"%u\n",worker->thread_count);
     int rc=write(fd,buf,strlen(buf));
     if(rc<=0){
         fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
     }
-}
-static void output_board_all(int fd,worker_t *worker)
-{
-    char buf[128];
     uint16_t i;
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
@@ -119,72 +115,66 @@ void* thread_pipe(void *data){
             break;
         }
         switch(cmd){
-            case 'T':
-            case 't':
-            	output_thread_count(worker->fileinfo.fd_out,worker);
+            case 'Q':
+            case 'q':
+            	worker->running=false;
             break;
             case 'B':
             case 'b':
                 output_board_all(worker->fileinfo.fd_out,worker);
             break;
-            case 'Q':
-            case 'q':
-                worker->running=false;
-            break;
         }
     }
     return NULL;
 }
-worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path,
-    const char *pipe_in, const char *pipe_out)
+worker_t *worker_start(worker_param_t *param)
 {
-    worker_t *worker = (worker_t*)malloc(sizeof(worker_t)+sizeof(thread_data_t)*thread_count);
-    worker->fileinfo.log_path=log_path;
-    worker->fileinfo.snapshot_path=snapshot_path;
-    worker->fileinfo.pipe_in=pipe_in;
-    worker->fileinfo.pipe_out=pipe_out;
-    if(init_files(&worker->fileinfo)!=E_OK){
+    worker_t *worker = (worker_t*)malloc(sizeof(worker_t)+sizeof(thread_data_t)*param->thread_count);
+    if(NULL==worker){
+        fprintf(stderr,"malloc failed\n");
+        return NULL;
+    }
+    worker->fileinfo.log_path=param->log_path;
+    worker->fileinfo.snapshot_path=param->snapshot_path;
+    worker->fileinfo.pipe_in=param->pipe_in;
+    worker->fileinfo.pipe_out=param->pipe_out;
+    int rc=init_files(&worker->fileinfo);
+    if(rc!=E_OK){
         free(worker);
         return NULL;
     }
     init_tables(&table_data);
-    worker->thread_count=thread_count;
+    worker->thread_count=param->thread_count;
     worker->table_data=&table_data;
     pthread_mutex_init(&(worker->log_mutex), NULL);
     int i;
-    for (i = 0; i < thread_count; i++) {
+    for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
         thread_data->worker=worker;
         initRandom(&thread_data->rand, unif_random(RANDOM_MAX));
         pthread_rwlock_init(&thread_data->rwlock, NULL);
         init_game(thread_data);
     }
+    
     read_snapshot(worker);
-    return worker;
-}
-void worker_start(worker_t *worker)
-{
-    int i;
     worker->running=true;
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_create(&(thread_data->tid), NULL, thread_main, thread_data);
     }
     pthread_create(&(worker->tid_pipe), NULL, thread_pipe, worker);
+    return worker;
 }
 void worker_stop(worker_t *worker)
 {
-    int i;
     worker->running=false;
+    int i;
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_join(thread_data->tid, NULL);
     }
     pthread_join(worker->tid_pipe,NULL);
-}
-void worker_close(worker_t *worker)
-{
-    int i;
+    write_snapshot(worker);
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_rwlock_destroy(&thread_data->rwlock);

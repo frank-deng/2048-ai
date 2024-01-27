@@ -20,6 +20,7 @@
 
 void print_help(const char *app_name){
     fprintf(stderr,"Daemon: %s [-n num_of_threads] &\nViewer: %s -v\n",app_name,app_name);
+    fprintf(stderr,"After daemon started, send signal SIGINT to the daemon process to stop it gracefully.\n");
 }
 const char *getfromenv(const char *key,const char *defval)
 {
@@ -55,23 +56,27 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
-    
     if(viewer){
         return viewer2048(pipe_in,pipe_out);
     }
     
+    worker_param_t param={
+        .thread_count=proc_cnt,
+        .log_path=filename_log,
+        .snapshot_path=filename_snapshot,
+        .pipe_in=pipe_in,
+        .pipe_out=pipe_out
+    };
+    worker_t *worker=worker_start(&param);
+    if(NULL==worker){
+        return 1;
+    }
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask,SIGINT);
     sigaddset(&mask,SIGQUIT);
     sigaddset(&mask,SIGPIPE);
     sigprocmask(SIG_BLOCK,&mask,NULL);
-
-    worker_t *worker=worker_init(proc_cnt,filename_log,filename_snapshot,pipe_in,pipe_out);
-    if(NULL==worker){
-        return 1;
-    }
-    worker_start(worker);
     time_t t0=time(NULL);
     while(worker->running) {
         struct timespec timeout={0,1};
@@ -81,7 +86,7 @@ int main(int argc, char *argv[]) {
             case SIGINT:
             case SIGQUIT:
             case SIGTERM:
-                worker_stop(worker);
+                worker->running=false;
             break;
         }
         time_t t=time(NULL);
@@ -91,7 +96,6 @@ int main(int argc, char *argv[]) {
         }
         usleep(10000);
     }
-    write_snapshot(worker);
-    worker_close(worker);
+    worker_stop(worker);
     return 0;
 }

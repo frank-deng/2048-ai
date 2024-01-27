@@ -41,15 +41,20 @@ struct worker_s {
 };
 typedef struct worker_s worker_t;
 
+typedef struct{
+    uint16_t thread_count;
+    const char *log_path;
+    const char *snapshot_path;
+    const char *pipe_in;
+    const char *pipe_out;
+}worker_param_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-worker_t *worker_init(uint16_t thread_count, const char *log_path, const char *snapshot_path,
-    const char *pipe_in, const char *pipe_out);
-void worker_start(worker_t *worker);
+worker_t *worker_start(worker_param_t *param);
 void worker_stop(worker_t *worker);
-void worker_close(worker_t *worker);
 
 #ifdef __cplusplus
 }
