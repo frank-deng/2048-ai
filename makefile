@@ -1,12 +1,18 @@
+# Use `make old_android=true` to compile on old android devices
 TARGET=2048ai
 OBJS=2048.o table.o fileio.o worker.o viewer.o main.o
 HEADERS=2048.h util.h random.h fileio.h worker.h viewer.h
 
-#CC=arm-linux-androideabi-gcc
-#CPP=arm-linux-androideabi-g++
+ifdef old_android
+CC=arm-linux-androideabi-gcc
+CPP=arm-linux-androideabi-g++
+CFLAGS=-O3
+else
 CC=gcc
 CPP=g++
-CFLAGS=-O3
+CFLAGS=-O3 -pthread
+endif
+
 CPPFLAGS=-std=c++11
 LDFLAGS=-O3 -std=c++11
 
