@@ -34,3 +34,4 @@ main.o: main.c $(HEADERS)
 .PHONY: clean
 clean:
 	-rm $(TARGET) *.o
+

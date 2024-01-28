@@ -34,6 +34,22 @@ void print_help(const char *app_name){
     fprintf(stderr,"       -s          Stop 2048 daemon.\n");
     fprintf(stderr,"       -n threads  Specify threads for running.\n");
 }
+uint16_t get_cpu_count()
+{
+    FILE *fp=fopen("/proc/cpuinfo","r");
+    if(NULL==fp){
+    	fprintf(stderr,"Failed to get cpu count.\n");
+	return 1;
+    }
+    uint16_t res=0;
+    char buf[80];
+    while(fgets(buf,sizeof(buf),fp)!=NULL){
+	if(strncmp(buf,"processor",sizeof("processor")-1)==0){
+	    res++;
+	}
+    }
+    return max(res,1);
+}
 const char *getfromenv(const char *key,const char *defval)
 {
     char *res=getenv(key);
@@ -75,8 +91,7 @@ void do_stop_worker(int signal)
     worker->running=false;
 }
 int main(int argc, char *argv[]) {
-    //uint16_t proc_cnt = get_nprocs();
-    uint16_t proc_cnt = 1;
+    uint16_t proc_cnt = get_cpu_count();
     const char *filename_snapshot=getfromenv(ENV_SNAPSHOT_FILE,DEFAULT_SNAPSHOT_FILE);
     const char *filename_log=getfromenv(ENV_LOG_FILE,DEFAULT_LOG_FILE);
     const char *pipe_in=getfromenv(ENV_PIPE_IN,DEFAULT_PIPE_IN);
