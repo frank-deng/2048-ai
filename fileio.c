@@ -166,9 +166,9 @@ int read_snapshot(worker_t *worker)
     int i;
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
-        board_t board;
-        uint32_t score_offset;
-        uint32_t moveno;
+        board_t board=0;
+        uint32_t score_offset=0;
+        uint32_t moveno=0;
         fscanf(worker->fileinfo.fp_snapshot,"%u,%u,%llx",&moveno,&score_offset,&board);
         pthread_rwlock_wrlock(&thread_data->rwlock);
         thread_data->moveno=moveno;

@@ -129,7 +129,7 @@ void* thread_pipe(void *data){
 }
 worker_t *worker_start(worker_param_t *param)
 {
-    worker_t *worker = (worker_t*)malloc(sizeof(worker_t)+sizeof(thread_data_t)*param->thread_count);
+    worker_t *worker = (worker_t*)calloc(1,sizeof(worker_t)+sizeof(thread_data_t)*param->thread_count);
     if(NULL==worker){
         fprintf(stderr,"malloc failed\n");
         return NULL;

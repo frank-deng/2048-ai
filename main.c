@@ -91,7 +91,7 @@ void do_stop_worker(int signal)
     worker->running=false;
 }
 int main(int argc, char *argv[]) {
-    uint16_t proc_cnt = get_cpu_count();
+    volatile uint16_t proc_cnt = 0;
     const char *filename_snapshot=getfromenv(ENV_SNAPSHOT_FILE,DEFAULT_SNAPSHOT_FILE);
     const char *filename_log=getfromenv(ENV_LOG_FILE,DEFAULT_LOG_FILE);
     const char *pipe_in=getfromenv(ENV_PIPE_IN,DEFAULT_PIPE_IN);
@@ -146,6 +146,9 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     
+    if(proc_cnt==0){
+	proc_cnt=get_cpu_count();
+    }
     worker_param_t param={
         .thread_count=proc_cnt,
         .log_path=filename_log,
