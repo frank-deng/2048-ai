@@ -2,9 +2,11 @@ TARGET=2048ai
 OBJS=2048.o table.o fileio.o worker.o viewer.o main.o
 HEADERS=2048.h util.h random.h fileio.h worker.h viewer.h
 
-CC=arm-linux-androideabi-gcc
-CPP=arm-linux-androideabi-g++
-CFLAGS=-O3 -std=c99
+#CC=arm-linux-androideabi-gcc
+#CPP=arm-linux-androideabi-g++
+CC=gcc
+CPP=g++
+CFLAGS=-O3
 CPPFLAGS=-std=c++11
 LDFLAGS=-O3 -std=c++11
 

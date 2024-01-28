@@ -106,7 +106,7 @@ static inline void print_board(board_t board,uint8_t row,uint8_t col) {
             if(powerVal == 0){
                 printf("    . ");
             }else{
-                printf("%5u ", 1L<<powerVal);
+                printf("%5u ", ((uint16_t)1)<<powerVal);
             }
             board >>= 4;
         }
@@ -172,20 +172,30 @@ static inline int print_boards_all(viewer_t *viewer)
     fflush(stdout);
     return E_OK;
 }
+viewer_t viewer;
+void do_stop_viewer(int signal)
+{
+    viewer.running=false;
+}
+void do_refresh_viewer(int signal)
+{
+    viewer.refresh=true;
+}
 int viewer2048(const char *pipe_in,const char *pipe_out)
 {
-    viewer_t viewer;
     if(init_viewer(&viewer,pipe_in,pipe_out)!=E_OK){
         return 1;
     }
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigprocmask(SIG_BLOCK,&mask,NULL);
+    signal(SIGINT,do_stop_viewer);
+    signal(SIGQUIT,do_stop_viewer);
+    signal(SIGTERM,do_stop_viewer);
+    signal(SIGWINCH,do_refresh_viewer);
     time_t t0=time(NULL);
     int rc_print=E_OK;
     while(viewer.running) {
         if(viewer.refresh){
             viewer.refresh=false;
+            viewer.cols=get_columns();
             _clrscr();
             rc_print=print_boards_all(&viewer);
             t0=time(NULL);

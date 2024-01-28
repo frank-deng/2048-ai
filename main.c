@@ -65,6 +65,15 @@ int do_stop_daemon(bool daemon_running,const char *pipe_in,const char *pipe_out)
     fprintf(stderr,"2048 daemon stopped.\n");
     return rc;
 }
+
+worker_t *worker=NULL;
+void do_stop_worker(int signal)
+{
+    if(NULL==worker){
+        return;
+    }
+    worker->running=false;
+}
 int main(int argc, char *argv[]) {
     //uint16_t proc_cnt = get_nprocs();
     uint16_t proc_cnt = 1;
@@ -129,13 +138,13 @@ int main(int argc, char *argv[]) {
         .pipe_in=pipe_in,
         .pipe_out=pipe_out
     };
-    worker_t *worker=worker_start(&param);
+    worker=worker_start(&param);
     if(NULL==worker){
         return 1;
     }
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigprocmask(SIG_BLOCK,&mask,NULL);
+    signal(SIGINT,SIG_IGN);
+    signal(SIGQUIT,SIG_IGN);
+    signal(SIGTERM,do_stop_worker);
     time_t t0=time(NULL);
     while(worker->running) {
         time_t t=time(NULL);

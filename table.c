@@ -13,7 +13,9 @@ static const float SCORE_MERGES_WEIGHT = 700.0f;
 static const float SCORE_EMPTY_WEIGHT = 270.0f;
 
 void init_tables(table_data_t *table) {
-    for (unsigned row = 0; row < 65536; ++row) {
+    int i;
+    unsigned int row;
+    for (row = 0; row < 65536; ++row) {
         unsigned line[4] = {
                 (row >>  0) & 0xf,
                 (row >>  4) & 0xf,
@@ -23,7 +25,7 @@ void init_tables(table_data_t *table) {
 
         // Score
         float score = 0.0f;
-        for (int i = 0; i < 4; ++i) {
+        for (i = 0; i < 4; ++i) {
             int rank = line[i];
             if (rank >= 2) {
                 // the score is the total sum of the tile and all intermediate merged tiles
@@ -39,7 +41,7 @@ void init_tables(table_data_t *table) {
 
         int prev = 0;
         int counter = 0;
-        for (int i = 0; i < 4; ++i) {
+        for (i = 0; i < 4; ++i) {
             int rank = line[i];
             sum += pow(rank, SCORE_SUM_POWER);
             if (rank == 0) {
@@ -60,7 +62,7 @@ void init_tables(table_data_t *table) {
 
         float monotonicity_left = 0;
         float monotonicity_right = 0;
-        for (int i = 1; i < 4; ++i) {
+        for (i = 1; i < 4; ++i) {
             if (line[i-1] > line[i]) {
                 monotonicity_left += pow(line[i-1], SCORE_MONOTONICITY_POWER) - pow(line[i], SCORE_MONOTONICITY_POWER);
             } else {
@@ -75,7 +77,7 @@ void init_tables(table_data_t *table) {
             SCORE_SUM_WEIGHT * sum;
 
         // execute a move to the left
-        for (int i = 0; i < 3; ++i) {
+        for (i = 0; i < 3; ++i) {
             int j;
             for (j = i + 1; j < 4; ++j) {
                 if (line[j] != 0) break;
