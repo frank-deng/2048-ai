@@ -20,7 +20,7 @@ $(TARGET): $(OBJS)
 	$(CPP) $(LDFLAGS) -o $@ $^
 
 2048.o : 2048.cpp $(HEADERS)
-	$(CC) $(CFLAGS) $(CPPFLAGS)  -c -o $@ $<
+	$(CPP) $(CFLAGS) $(CPPFLAGS)  -c -o $@ $<
 
 table.o: table.c $(HEADERS)
 	$(CC) $(CFLAGS) -c -o $@ $<

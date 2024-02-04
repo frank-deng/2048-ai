@@ -35,7 +35,6 @@ struct worker_s {
     volatile bool running;
     table_data_t *table_data;
     fileinfo_t fileinfo;
-    pthread_t tid_pipe;
     uint16_t thread_count;
     thread_data_t thread_data[0];
 };
@@ -55,6 +54,7 @@ extern "C" {
 
 worker_t *worker_start(worker_param_t *param);
 void worker_stop(worker_t *worker);
+int worker_pipe_handler(worker_t *worker);
 
 #ifdef __cplusplus
 }

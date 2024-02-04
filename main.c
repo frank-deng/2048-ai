@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
     }
     
     if(proc_cnt==0){
-	proc_cnt=get_cpu_count();
+        proc_cnt=get_cpu_count();
     }
     worker_param_t param={
         .thread_count=proc_cnt,
@@ -165,12 +165,13 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM,do_stop_worker);
     time_t t0=time(NULL);
     while(worker->running) {
+        worker_pipe_handler(worker);
         time_t t=time(NULL);
         if((t-t0)>=1){
             t0=t;
             write_snapshot(worker);
         }
-        usleep(10000);
+        usleep(1000);
     }
     worker_stop(worker);
     return 0;

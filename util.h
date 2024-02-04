@@ -22,6 +22,7 @@ enum{
     E_FILEIO,
     E_NOSPACE,
     E_TIMEOUT,
+    E_AGAIN,
 };
 
 static pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;

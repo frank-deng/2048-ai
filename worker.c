@@ -100,32 +100,27 @@ static void output_board_all(int fd,worker_t *worker)
         }
     }
 }
-#define DELAY_US (10)
-void* thread_pipe(void *data){
-    worker_t *worker = (worker_t*)data;
-    char cmd;
-    while(worker->running){
-        usleep(DELAY_US);
-        cmd='\0';
-        int rc=read(worker->fileinfo.fd_in,&cmd,sizeof(cmd));
-        if(rc<0 && errno==EAGAIN){
-            continue;
-        }else if(rc<=0){
-            fprintf(stderr,"Failed to read pipe %d %d\n",rc,errno);
-            break;
-        }
-        switch(cmd){
-            case 'Q':
-            case 'q':
-            	worker->running=false;
-            break;
-            case 'B':
-            case 'b':
-                output_board_all(worker->fileinfo.fd_out,worker);
-            break;
-        }
+int worker_pipe_handler(worker_t *worker)
+{
+    char cmd='\0';
+    int rc=read(worker->fileinfo.fd_in,&cmd,sizeof(cmd));
+    if(rc<0 && errno==EAGAIN){
+        return E_AGAIN;
+    }else if(rc<=0){
+        fprintf(stderr,"Failed to read pipe %d %d\n",rc,errno);
+        return E_FILEIO;
     }
-    return NULL;
+    switch(cmd){
+        case 'Q':
+        case 'q':
+            worker->running=false;
+        break;
+        case 'B':
+        case 'b':
+            output_board_all(worker->fileinfo.fd_out,worker);
+        break;
+    }
+    return E_OK;
 }
 worker_t *worker_start(worker_param_t *param)
 {
@@ -162,7 +157,6 @@ worker_t *worker_start(worker_param_t *param)
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_create(&(thread_data->tid), NULL, thread_main, thread_data);
     }
-    pthread_create(&(worker->tid_pipe), NULL, thread_pipe, worker);
     return worker;
 }
 void worker_stop(worker_t *worker)
@@ -173,7 +167,6 @@ void worker_stop(worker_t *worker)
         thread_data_t *thread_data=&(worker->thread_data[i]);
         pthread_join(thread_data->tid, NULL);
     }
-    pthread_join(worker->tid_pipe,NULL);
     write_snapshot(worker);
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
