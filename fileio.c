@@ -85,20 +85,22 @@ int init_files(fileinfo_t *info)
         goto error_exit;
     }
     
-    unlink(info->pipe_in);
-    unlink(info->pipe_out);
-    
-    int res=mkfifo(info->pipe_in, 0666);
-    if(res < 0) {
-        fprintf(stderr,"Failed to create fifo %s\n",info->pipe_in);
-        goto error_exit;
+    struct stat stat_pipe;
+    if(stat(info->pipe_in,&stat_pipe)!=0){
+        int res=mkfifo(info->pipe_in, 0666);
+        if(res < 0) {
+            fprintf(stderr,"Failed to create fifo %s\n",info->pipe_in);
+            goto error_exit;
+        }
     }
     info->pipe_in_created=true;
     
-    res=mkfifo(info->pipe_out, 0666);
-    if(res < 0) {
-        fprintf(stderr,"Failed to create fifo %s\n",info->pipe_out);
-        goto error_exit;
+    if(stat(info->pipe_out,&stat_pipe)!=0){
+        int res=mkfifo(info->pipe_out, 0666);
+        if(res < 0) {
+            fprintf(stderr,"Failed to create fifo %s\n",info->pipe_out);
+            goto error_exit;
+        }
     }
     info->pipe_out_created=true;
     
