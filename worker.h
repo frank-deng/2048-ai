@@ -6,6 +6,8 @@
 #include "2048.h"
 #include "random.h"
 
+#define MAX_CONNECTIONS (16)
+
 struct worker_s;
 typedef struct {
     pthread_t tid;
@@ -20,14 +22,12 @@ typedef struct {
 typedef struct{
     const char *log_path;
     const char *snapshot_path;
-    const char *pipe_in;
-    const char *pipe_out;
-    bool pipe_in_created;
-    bool pipe_out_created;
-    int fd_in;
-    int fd_out;
+    const char *socket_path;
     FILE *fp_log;
     FILE *fp_snapshot;
+    int fd_socket;
+    bool socket_created;
+    int clients[MAX_CONNECTIONS];
 }fileinfo_t;
 
 struct worker_s {
@@ -44,8 +44,7 @@ typedef struct{
     uint16_t thread_count;
     const char *log_path;
     const char *snapshot_path;
-    const char *pipe_in;
-    const char *pipe_out;
+    const char *socket_path;
 }worker_param_t;
 
 #ifdef __cplusplus

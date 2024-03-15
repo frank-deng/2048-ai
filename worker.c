@@ -76,52 +76,6 @@ void* thread_main(void *data){
     return NULL;
 }
 
-static void output_board_all(int fd,worker_t *worker)
-{
-    char buf[128];
-    snprintf(buf,sizeof(buf),"%u\n",worker->thread_count);
-    int rc=write(fd,buf,strlen(buf));
-    if(rc<=0){
-        fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
-    }
-    uint16_t i;
-    for (i = 0; i < worker->thread_count; i++) {
-        thread_data_t *thread_data=&(worker->thread_data[i]);
-        pthread_rwlock_rdlock(&(thread_data->rwlock));
-        board_t board=thread_data->board;
-        uint32_t score_offset=thread_data->scoreoffset;
-        uint32_t moveno=thread_data->moveno;
-        pthread_rwlock_unlock(&(thread_data->rwlock));
-        uint32_t score=score_board(worker->table_data,board)-score_offset;
-        snprintf(buf,sizeof(buf),"%u,%u,%u,%016llx\n",i,moveno,score,board);
-        int rc=write(fd,buf,strlen(buf));
-        if(rc<=0){
-            fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
-        }
-    }
-}
-int worker_pipe_handler(worker_t *worker)
-{
-    char cmd='\0';
-    int rc=read(worker->fileinfo.fd_in,&cmd,sizeof(cmd));
-    if(rc<0 && errno==EAGAIN){
-        return E_AGAIN;
-    }else if(rc<=0){
-        fprintf(stderr,"Failed to read pipe %d %d\n",rc,errno);
-        return E_FILEIO;
-    }
-    switch(cmd){
-        case 'Q':
-        case 'q':
-            worker->running=false;
-        break;
-        case 'B':
-        case 'b':
-            output_board_all(worker->fileinfo.fd_out,worker);
-        break;
-    }
-    return E_OK;
-}
 worker_t *worker_start(worker_param_t *param)
 {
     worker_t *worker = (worker_t*)calloc(1,sizeof(worker_t)+sizeof(thread_data_t)*param->thread_count);
@@ -131,8 +85,7 @@ worker_t *worker_start(worker_param_t *param)
     }
     worker->fileinfo.log_path=param->log_path;
     worker->fileinfo.snapshot_path=param->snapshot_path;
-    worker->fileinfo.pipe_in=param->pipe_in;
-    worker->fileinfo.pipe_out=param->pipe_out;
+    worker->fileinfo.socket_path=param->socket_path;
     int rc=init_files(&worker->fileinfo);
     if(rc!=E_OK){
         free(worker);

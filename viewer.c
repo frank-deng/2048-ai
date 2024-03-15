@@ -7,14 +7,16 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
 #include <termios.h>
 #include "util.h"
 #include "viewer.h"
 
 typedef uint64_t board_t;
 typedef struct{
-    int fd_in;
-    int fd_out;
+    int fd_socket;
     volatile bool running;
     volatile bool refresh;
     uint16_t cols;
@@ -43,22 +45,23 @@ static inline uint16_t get_columns()
 }
 
 void close_viewer(viewer_t *viewer);
-int init_viewer(viewer_t *viewer, const char *pipe_in, const char *pipe_out)
+int init_viewer(viewer_t *viewer, const char *socket_path)
 {
     int rc=E_OK;
-    viewer->fd_in=viewer->fd_out=-1;
     viewer->term_init=false;
-    
-    viewer->fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
-    if(viewer->fd_in<0){
-        fprintf(stderr,"Failed to open pipe %s, maybe daemon is not running.\n",pipe_in);
+    viewer->fd_socket=socket(PF_UNIX,SOCK_STREAM,0);
+    if(viewer->fd_socket<0){
+        fprintf(stderr,"Failed to init socket.\n");
         rc=E_FILEIO;
         goto error_exit;
     }
+    fcntl(viewer->fd_socket, F_SETFL, fcntl(viewer->fd_socket, F_GETFL) | O_NONBLOCK);
     
-    viewer->fd_out=open(pipe_out,O_RDWR|O_NONBLOCK);
-    if(viewer->fd_out<0){
-        fprintf(stderr,"Failed to open pipe %s\n",pipe_in);
+    struct sockaddr_un addr;
+    addr.sun_family=AF_UNIX;
+    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path)-1);
+    if(connect(viewer->fd_socket,(struct sockaddr*)&addr,sizeof(addr)) < 0){
+        fprintf(stderr,"Failed to open socket %s, maybe daemon is not running.\n",socket_path);
         rc=E_FILEIO;
         goto error_exit;
     }
@@ -87,13 +90,8 @@ void close_viewer(viewer_t *viewer)
     if(viewer->term_init){
         tcsetattr(STDIN_FILENO, TCSANOW, &viewer->flags_orig);
     }
-    if(viewer->fd_in>=0){
-        flock(viewer->fd_in,LOCK_UN|LOCK_NB);
-        close(viewer->fd_in);
-    }
-    if(viewer->fd_out>=0){
-        flock(viewer->fd_out,LOCK_UN|LOCK_NB);
-        close(viewer->fd_out);
+    if(viewer->fd_socket>=0){
+        close(viewer->fd_socket);
     }
 }
 
@@ -118,15 +116,15 @@ static inline int print_boards_all(viewer_t *viewer)
 {
     char cmd='b',buf[1024];
     int i;
-    while(read(viewer->fd_out,buf,sizeof(buf))>0);
-    int rc=write(viewer->fd_in,&cmd,sizeof(cmd));
+    while(read(viewer->fd_socket,buf,sizeof(buf))>0);
+    int rc=write(viewer->fd_socket,&cmd,sizeof(cmd));
     if(rc<=0){
         return E_FILEIO;
     }
-    uint16_t retry=2000;
+    uint16_t retry=200;
     do{
         usleep(1000);
-        rc=read(viewer->fd_out,buf,sizeof(buf)-1);
+        rc=read(viewer->fd_socket,buf,sizeof(buf)-1);
     }while(viewer->running && rc<0 && errno==EAGAIN && retry--);
     if(rc<=0 && errno==EAGAIN){
         return E_TIMEOUT;
@@ -181,9 +179,9 @@ void do_refresh_viewer(int signal)
 {
     viewer.refresh=true;
 }
-int viewer2048(const char *pipe_in,const char *pipe_out)
+int viewer2048(const char *socket_path)
 {
-    if(init_viewer(&viewer,pipe_in,pipe_out)!=E_OK){
+    if(init_viewer(&viewer,socket_path)!=E_OK){
         return 1;
     }
     signal(SIGINT,do_stop_viewer);

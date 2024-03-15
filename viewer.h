@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-int viewer2048(const char *pipe_in,const char *pipe_out);
+int viewer2048(const char *socket_path);
 
 #ifdef __cplusplus
 }
