@@ -8,9 +8,9 @@ CC=arm-linux-androideabi-gcc
 CPP=arm-linux-androideabi-g++
 CFLAGS=-O3
 else
-CC=gcc
-CPP=g++
-CFLAGS=-O3 -pthread
+CC=clang
+CPP=clang++
+CFLAGS=-O3
 endif
 
 CPPFLAGS=-std=c++11

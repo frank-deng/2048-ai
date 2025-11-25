@@ -18,6 +18,7 @@
 #include <time.h>
 //#include <algorithm>
 #include <unordered_map>
+#include <future>
 #include "2048.h"
 
 static inline uint8_t count_distinct_tiles(board_t board) {
@@ -182,12 +183,19 @@ int find_best_move(table_data_t *table, board_t board) {
         return -1;
     }
 
+    std::future<float> tasks[4];
+
     //print_board(board);
     //printf("Current scores: heur %.0f, actual %.0f\n", score_heur_board(board), score_board(board));
 
     for(move=0; move<4; move++) {
-        float res = score_toplevel_move(table, board, move);
-        if(res > best) {
+	tasks[move]=std::async(std::launch::async,[table,board,move](){
+	    return score_toplevel_move(table,board,move);
+	});
+    }
+    for (move = 0; move < 4; move++) {
+        float res = tasks[move].get();
+        if (res > best) {
             best = res;
             bestmove = move;
         }

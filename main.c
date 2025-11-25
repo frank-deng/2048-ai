@@ -155,7 +155,10 @@ int main(int argc, char *argv[]) {
     }
     
     if(proc_cnt==0){
-        proc_cnt=get_cpu_count();
+        proc_cnt=get_cpu_count()/4;
+	if(proc_cnt==0){
+            proc_cnt=1;
+	}
     }
     worker_param_t param={
         .thread_count=proc_cnt,
