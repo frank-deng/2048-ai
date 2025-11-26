@@ -144,6 +144,9 @@ int write_log(thread_data_t *thread_data)
     uint32_t moveno=thread_data->moveno;
     pthread_rwlock_unlock(&thread_data->rwlock);
 
+    if (moveno==0 || board==0){
+	return E_INVAL;
+    }
     worker_t *worker=thread_data->worker;
     uint32_t score=score_board(worker->table_data,board)-score_offset;
     uint16_t max_rank=(1<<get_max_rank(board));

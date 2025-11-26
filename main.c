@@ -26,11 +26,11 @@ void print_help(const char *app_name){
     }else if(NULL!=app_name_last_win){
         app_name=app_name_last_win+1;
     }
-    fprintf(stderr,"Usage: %s [-h] [-d] [-s] [-n threads]\n",app_name);
-    fprintf(stderr,"       -h          Print help.\n");
-    fprintf(stderr,"       -d          Start 2048 daemon.\n");
-    fprintf(stderr,"       -s          Stop 2048 daemon.\n");
-    fprintf(stderr,"       -n threads  Specify threads for running.\n");
+    fprintf(stderr,"Usage: %s [-h] [-d] [-s] [-n instances]\n",app_name);
+    fprintf(stderr,"       -h            Print help.\n");
+    fprintf(stderr,"       -d            Start 2048 daemon.\n");
+    fprintf(stderr,"       -s            Stop 2048 daemon.\n");
+    fprintf(stderr,"       -n instances  Specify instances for running.\n");
 }
 uint16_t get_cpu_count()
 {
